@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: verity-postgres
+    environment:
+      POSTGRES_USER: verity
+      POSTGRES_PASSWORD: verity
+      POSTGRES_DB: verity
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"  # host port 5433 avoids clashing with other local Postgres instances
+    volumes:
+      - verity_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U verity -d verity"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  verity_pgdata:
