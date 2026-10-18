@@ -20,6 +20,7 @@ import {
   runStage,
   runStatus,
   stepType,
+  taskOrigin,
   toolCallStatus,
 } from "./enums.js";
 import { organizations, users } from "./identity.js";
@@ -43,6 +44,8 @@ export const researchTasks = pgTable(
     organizationId: organizationId(),
     question: text("question").notNull(),
     instructions: text("instructions"),
+    /** "eval" tasks belong to an offline evaluation run and stay out of the research history. */
+    origin: taskOrigin("origin").notNull().default("user"),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: createdAt(),

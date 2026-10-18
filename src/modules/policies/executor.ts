@@ -46,6 +46,8 @@ export type ExecutionContext = GatewayContext & {
   runId: string;
   policy: Policy;
   signal?: AbortSignal;
+  /** No person can approve (offline evaluation): "require approval" becomes "deny". */
+  unattended?: boolean;
 };
 
 export type ExecuteOptions<T> = {
@@ -215,7 +217,16 @@ export function createToolExecutor({ db, logger }: { db: Database; logger: Logge
 
     // New call: ask the gateway, and record the call and the decision either way.
     const evaluation = await withSpan("policy.check", { tool }, async (span) => {
-      const result = await evaluateToolCall(ctx, tool, args);
+      const checked = await evaluateToolCall(ctx, tool, args);
+      const result =
+        ctx.unattended && checked.decision === "require_approval"
+          ? {
+              ...checked,
+              decision: "deny" as const,
+              matchedRule: `${checked.matchedRule} (unattended run)`,
+              reason: `${checked.reason}. Nobody can approve it during an unattended run, so it is denied.`,
+            }
+          : checked;
       span.setAttributes({
         decision: result.decision,
         rule: result.matchedRule,

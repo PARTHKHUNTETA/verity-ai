@@ -29,6 +29,7 @@ const app = createApp({
     embeddingModel: embeddingModelFor(env),
     maxUploadBytes: env.MAX_UPLOAD_MB * 1024 * 1024,
   },
+  evals: { queue },
 });
 
 const server = app.listen(env.PORT, () => {

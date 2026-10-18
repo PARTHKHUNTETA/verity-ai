@@ -22,7 +22,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "worker": "tsx watch src/worker.ts",
-    "start:worker": "node dist/worker.js"
+    "start:worker": "node dist/worker.js",
+    "eval": "tsx src/scripts/eval.ts"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

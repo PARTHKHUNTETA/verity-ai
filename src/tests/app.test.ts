@@ -2,7 +2,7 @@ import express from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
-import { testKnowledgeDeps, testResearchDeps } from "./helpers.js";
+import { fakeQueue, testKnowledgeDeps, testResearchDeps } from "./helpers.js";
 import { db } from "../infrastructure/database/client.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { requestId } from "../middleware/request-id.js";
@@ -12,6 +12,7 @@ const app = createApp({
   db,
   research: testResearchDeps,
   knowledge: testKnowledgeDeps,
+  evals: { queue: fakeQueue },
   pingDatabase: async () => {},
 });
 

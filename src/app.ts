@@ -3,7 +3,11 @@ import express, { type Express } from "express";
 import type { Database } from "./infrastructure/database/client.js";
 import type { RunEventBus } from "./infrastructure/events/run-events.js";
 import type { LlmClient } from "./infrastructure/llm/index.js";
-import type { IngestJobQueue, ResearchJobQueue } from "./infrastructure/queue/queue.js";
+import type {
+  EvalJobQueue,
+  IngestJobQueue,
+  ResearchJobQueue,
+} from "./infrastructure/queue/queue.js";
 import type { FileStorage } from "./infrastructure/storage/file-storage.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFound } from "./middleware/not-found.js";
@@ -11,7 +15,7 @@ import { requestId } from "./middleware/request-id.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
-import { feedbackRoutes } from "./modules/evaluation/evaluation.routes.js";
+import { evalsRoutes, feedbackRoutes } from "./modules/evaluation/evaluation.routes.js";
 import { observabilityRoutes } from "./modules/observability/observability.routes.js";
 import { organizationRoutes } from "./modules/organizations/organizations.routes.js";
 import { approvalsRoutes, policiesRoutes } from "./modules/policies/policies.routes.js";
@@ -41,6 +45,7 @@ export type AppDependencies = {
     embeddingModel: string;
     maxUploadBytes: number;
   };
+  evals: { queue: EvalJobQueue };
 };
 
 export function createApp(deps: AppDependencies): Express {
@@ -66,6 +71,15 @@ export function createApp(deps: AppDependencies): Express {
   api.use("/policies", policiesRoutes(deps.db));
   api.use("/observability", observabilityRoutes(deps.db));
   api.use("/feedback", feedbackRoutes(deps.db));
+  api.use(
+    "/evals",
+    evalsRoutes(deps.db, {
+      queue: deps.evals.queue,
+      events: deps.research.events,
+      model: deps.research.model,
+      sources: { ...deps.knowledge, search },
+    }),
+  );
   api.use("/approvals", approvalsRoutes(deps.db, deps.research));
   api.use(sourcesRoutes(deps.db, { ...deps.knowledge, search }));
   // Later phases mount their module routers here, e.g. api.use("/research", researchRoutes(...)).

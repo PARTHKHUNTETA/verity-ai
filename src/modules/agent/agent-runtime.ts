@@ -233,6 +233,7 @@ export function createAgentRuntime({
                 },
                 toolCounts,
                 signal,
+                unattended: config.unattended === true,
               },
               tool,
               args,
@@ -309,7 +310,8 @@ export function createAgentRuntime({
             if (
               err instanceof BudgetExceededError &&
               err.limit !== "timeoutMs" &&
-              rules.budget.onExceed === "require_approval"
+              rules.budget.onExceed === "require_approval" &&
+              !config.unattended
             ) {
               const used =
                 err.limit === "maxSteps"

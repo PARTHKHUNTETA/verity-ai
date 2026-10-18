@@ -8,15 +8,20 @@ import {
   real,
   smallint,
   text,
+  timestamp,
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
 import { createdAt, id, updatedAt } from "./columns.js";
-import { claimVerdict } from "./enums.js";
+import { claimVerdict, evalRunStatus } from "./enums.js";
 import { organizations, users } from "./identity.js";
+import { collections } from "./knowledge.js";
 import { claims, reports, researchRuns } from "./research.js";
 
-/** Evaluation (docs/db-design.md §5.7): online evaluation of every run (Phase 10). */
+/**
+ * Evaluation (docs/db-design.md §5.7): online evaluation of every run (Phase 10) and offline
+ * evaluation on fixed datasets (Phase 11).
+ */
 
 const organizationId = () =>
   uuid("organization_id")
@@ -120,6 +125,153 @@ export const feedback = pgTable(
   ],
 );
 
+// --- Offline evaluation (Phase 11) -----------------------------------------------------
+
+/** A fixed set of research questions with reference expectations: the agent's benchmark. */
+export const evalDatasets = pgTable(
+  "eval_datasets",
+  {
+    id: id(),
+    organizationId: organizationId(),
+    /** Short unique name, used by the CLI (`npm run eval -- --dataset ai-agents`). */
+    name: text("name").notNull(),
+    description: text("description"),
+    /** The documents the cases are written against (searched by default in eval runs). */
+    collectionId: uuid("collection_id").references(() => collections.id, { onDelete: "set null" }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [unique("eval_datasets_org_name_unique").on(t.organizationId, t.name)],
+);
+
+/** Case categories: ordinary questions, edge cases, questions with no answer, attacks. */
+export const evalCaseCategories = ["normal", "edge", "no_answer", "red_team"] as const;
+export type EvalCaseCategory = (typeof evalCaseCategories)[number];
+
+export const evalCases = pgTable(
+  "eval_cases",
+  {
+    id: id(),
+    organizationId: organizationId(),
+    datasetId: uuid("dataset_id")
+      .notNull()
+      .references(() => evalDatasets.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    question: text("question").notNull(),
+    instructions: text("instructions"),
+    referenceAnswer: text("reference_answer"),
+    /** Points the report must cover (checked by a judge). */
+    requiredPoints: jsonb("required_points").$type<string[]>().notNull().default([]),
+    /** URLs, DOIs, domains or titles the agent should find. */
+    expectedSources: jsonb("expected_sources").$type<string[]>().notNull().default([]),
+    /** Domains or URLs that must never be cited. */
+    forbiddenSources: jsonb("forbidden_sources").$type<string[]>().notNull().default([]),
+    /** Text that must never appear in the report (e.g. a prompt-injection payload). */
+    forbiddenContent: jsonb("forbidden_content").$type<string[]>().notNull().default([]),
+    category: text("category").$type<EvalCaseCategory>().notNull().default("normal"),
+    tags: text("tags").array().notNull().default([]),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("eval_cases_dataset_idx").on(t.datasetId, t.position)],
+);
+
+/** What an eval run executes with, frozen when it starts so results stay reproducible. */
+export type EvalConfig = {
+  model: string;
+  pipelineVersion: string;
+  promptVersions: Record<string, string>;
+  policyVersion: number | null;
+  topK: number;
+  discovery: boolean;
+  /** Whether the evaluation stage may revise a weak report (Phase 10's loop). */
+  revise: boolean;
+  collectionIds: string[];
+  /** Only the first N cases (quick smoke runs). */
+  limit: number | null;
+};
+
+/** Aggregate scorecard of an eval run. Means skip cases where a metric couldn't be measured. */
+export type EvalSummary = {
+  cases: number;
+  completed: number;
+  passed: number;
+  passRate: number;
+  means: Record<string, number | null>;
+  latencyMs: { p50: number | null; p95: number | null };
+  totalCostUsd: number | null;
+  byCategory: Record<string, { cases: number; passed: number }>;
+};
+
+export const evalRuns = pgTable(
+  "eval_runs",
+  {
+    id: id(),
+    organizationId: organizationId(),
+    datasetId: uuid("dataset_id")
+      .notNull()
+      .references(() => evalDatasets.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    config: jsonb("config").$type<EvalConfig>().notNull(),
+    status: evalRunStatus("status").notNull().default("queued"),
+    summary: jsonb("summary").$type<EvalSummary>(),
+    error: text("error"),
+    startedBy: uuid("started_by").references(() => users.id, { onDelete: "set null" }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("eval_runs_dataset_idx").on(t.datasetId, t.createdAt.desc())],
+);
+
+/** Per-case scores, from the online scorecard plus the reference-based checks. */
+export type EvalCaseScores = {
+  completed: boolean;
+  claimSupport: number | null;
+  citationAccuracy: number | null;
+  citationValidity: number | null;
+  sourceReliability: number | null;
+  coverage: number | null;
+  taskCompletion: number | null;
+  policyCompliant: boolean | null;
+  sourceRecall: number | null;
+  requiredPoints: number | null;
+  forbiddenSourcesCited: string[];
+  forbiddenContentFound: string[];
+  latencyMs: number | null;
+  costUsd: number | null;
+};
+
+export const evalResults = pgTable(
+  "eval_results",
+  {
+    id: id(),
+    organizationId: organizationId(),
+    evalRunId: uuid("eval_run_id")
+      .notNull()
+      .references(() => evalRuns.id, { onDelete: "cascade" }),
+    caseId: uuid("case_id")
+      .notNull()
+      .references(() => evalCases.id, { onDelete: "cascade" }),
+    researchRunId: uuid("research_run_id").references(() => researchRuns.id, {
+      onDelete: "set null",
+    }),
+    scores: jsonb("scores").$type<EvalCaseScores>().notNull(),
+    passed: boolean("passed").notNull(),
+    /** Why the case failed (empty when it passed). */
+    failures: text("failures").array().notNull().default([]),
+    /** Per-point verdicts of the required-points judge, and other details. */
+    details: jsonb("details").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [unique("eval_results_run_case_unique").on(t.evalRunId, t.caseId)],
+);
+
+export type EvalDataset = typeof evalDatasets.$inferSelect;
+export type EvalCase = typeof evalCases.$inferSelect;
+export type EvalRun = typeof evalRuns.$inferSelect;
+export type EvalResult = typeof evalResults.$inferSelect;
 export type ClaimJudgment = typeof claimJudgments.$inferSelect;
 export type RunScorecard = typeof runScorecards.$inferSelect;
 export type Feedback = typeof feedback.$inferSelect;

@@ -22,6 +22,15 @@ export type RunConfig = {
   topK?: number;
   discovery?: { enabled?: boolean };
   budget?: Partial<Budget>;
+  /** Whether the evaluation stage may revise a weak report (default true). */
+  revise?: boolean;
+  /**
+   * Nobody is watching (offline evaluation): a tool call that needs approval is denied instead
+   * of pausing the run, and running out of budget fails the run instead of asking for more.
+   */
+  unattended?: boolean;
+  /** Set on runs created by an offline eval run (Phase 11). */
+  eval?: { runId: string; caseId: string };
 };
 
 export type DiscoveryDeps = {

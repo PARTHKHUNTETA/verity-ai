@@ -4,7 +4,9 @@ import { createPgRunEventBus } from "./infrastructure/events/run-events.js";
 import { createLlmClient, embeddingModelFor } from "./infrastructure/llm/index.js";
 import {
   createJobQueue,
+  EVAL_RUN_QUEUE,
   RESEARCH_RUN_QUEUE,
+  type EvalRunJob,
   SOURCE_INGEST_QUEUE,
   type ResearchRunJob,
   type SourceIngestJob,
@@ -14,6 +16,7 @@ import { createSafeFetcher } from "./infrastructure/http/safe-fetch.js";
 import { createAgentRuntime } from "./modules/agent/agent-runtime.js";
 import { researchFakes } from "./modules/agent/fakes.js";
 import { failStalledRuns } from "./modules/agent/maintenance.js";
+import { createEvalRunner } from "./modules/evaluation/offline/runner.js";
 import { maintainTracePartitions } from "./modules/observability/maintenance.js";
 import { createTracer } from "./modules/observability/tracer.js";
 import { createApprovalsService } from "./modules/policies/approvals.service.js";
@@ -96,6 +99,22 @@ await queue.boss.work<ResearchRunJob>(
   },
 );
 
+// Offline eval runs execute their cases here, one at a time, through the same runtime.
+const evalRunner = createEvalRunner({
+  db,
+  runtime,
+  llm,
+  logger,
+  track(runId) {
+    const controller = new AbortController();
+    active.set(runId, controller);
+    return { signal: controller.signal, done: () => active.delete(runId) };
+  },
+});
+await queue.boss.work<EvalRunJob>(EVAL_RUN_QUEUE, { localConcurrency: 1 }, async ([job]) => {
+  if (job) await evalRunner.execute(job.data.evalRunId);
+});
+
 await queue.boss.work<SourceIngestJob>(
   SOURCE_INGEST_QUEUE,
   { localConcurrency: 2 },
@@ -124,7 +143,7 @@ sweep.unref();
 setInterval(() => void maintainTracePartitions(db, logger), 6 * 60 * 60 * 1000).unref();
 
 logger.info(
-  `VerityAI worker started (LLM: ${llm.provider}, web search: ${providers.web?.name ?? "off"}, academic: ${providers.academic.map((p) => p.name).join(", ") || "off"}, queues: ${RESEARCH_RUN_QUEUE} ×${CONCURRENCY}, ${SOURCE_INGEST_QUEUE} ×2)`,
+  `VerityAI worker started (LLM: ${llm.provider}, web search: ${providers.web?.name ?? "off"}, academic: ${providers.academic.map((p) => p.name).join(", ") || "off"}, queues: ${RESEARCH_RUN_QUEUE} ×${CONCURRENCY}, ${SOURCE_INGEST_QUEUE} ×2, ${EVAL_RUN_QUEUE} ×1)`,
 );
 
 async function shutdown(signal: string) {

@@ -1,5 +1,5 @@
 import type { FakeOptions, ToolLoopItem } from "../../infrastructure/llm/index.js";
-import { fakeClaimJudgments, fakeTaskCompletion } from "../evaluation/fakes.js";
+import { fakeClaimJudgments, fakeRequiredPoints, fakeTaskCompletion } from "../evaluation/fakes.js";
 import { keywords } from "../tools/search.tool.js";
 import type { EvidenceExtraction } from "./prompts/extract.js";
 import type { ResearchPlan } from "./prompts/plan.js";
@@ -204,6 +204,7 @@ export const researchFakes: FakeOptions = {
     evidence_extraction: fakeEvidence,
     claim_judgments: fakeClaimJudgments,
     task_completion: fakeTaskCompletion,
+    required_points: fakeRequiredPoints,
   },
   toolTurn: fakeToolTurn,
 };

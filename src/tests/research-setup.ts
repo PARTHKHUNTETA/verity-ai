@@ -78,3 +78,8 @@ export function buildRuntime(fakes: FakeOptions = researchFakes) {
     events,
   };
 }
+
+/** Runs the ingestion jobs the API queued (uploads), as the worker would. */
+export async function ingestQueued(): Promise<void> {
+  for (const id of fakeQueue.ingests.splice(0)) await ingestion.ingestSource(id);
+}

@@ -13,6 +13,9 @@ export type ResearchRunJob = { runId: string };
 export const SOURCE_INGEST_QUEUE = "source.ingest";
 export type SourceIngestJob = { sourceId: string };
 
+export const EVAL_RUN_QUEUE = "eval.run";
+export type EvalRunJob = { evalRunId: string };
+
 /** What the API needs from the queue (tests pass a fake). */
 export interface ResearchJobQueue {
   enqueueResearchRun(runId: string): Promise<void>;
@@ -22,8 +25,13 @@ export interface IngestJobQueue {
   enqueueSourceIngest(sourceId: string): Promise<void>;
 }
 
+export interface EvalJobQueue {
+  enqueueEvalRun(evalRunId: string): Promise<void>;
+}
+
 export type JobQueue = ResearchJobQueue &
-  IngestJobQueue & {
+  IngestJobQueue &
+  EvalJobQueue & {
     boss: PgBoss;
     stop(): Promise<void>;
   };
@@ -53,8 +61,19 @@ export async function createJobQueue(options: {
     expireInSeconds: 15 * 60,
   });
 
+  await ensureQueue(boss, EVAL_RUN_QUEUE, {
+    // An eval run executes many research runs in a row, so it may take a long time. The runner
+    // skips cases that already have results, so a retry after a crash continues where it was.
+    retryLimit: 1,
+    heartbeatSeconds: 60,
+    expireInSeconds: 6 * 60 * 60,
+  });
+
   return {
     boss,
+    async enqueueEvalRun(evalRunId) {
+      await boss.send(EVAL_RUN_QUEUE, { evalRunId } satisfies EvalRunJob);
+    },
     async enqueueResearchRun(runId) {
       await boss.send(RESEARCH_RUN_QUEUE, { runId } satisfies ResearchRunJob);
     },

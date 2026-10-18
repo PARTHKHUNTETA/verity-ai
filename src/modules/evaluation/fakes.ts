@@ -1,4 +1,5 @@
 import type { ClaimJudgmentsOutput } from "./prompts/claim-judge.js";
+import type { RequiredPointsOutput } from "./prompts/points-judge.js";
 import type { TaskCompletionJudgment } from "./scorers/task-completion.js";
 
 /**
@@ -68,5 +69,24 @@ export function fakeTaskCompletion(input: string): TaskCompletionJudgment {
     score,
     missing: missing.slice(0, 5),
     rationale: `${planned.length - missing.length} of ${planned.length} planned sub-questions are answered (fake judge).`,
+  };
+}
+
+/** A point counts as covered when most of its content words appear in one report sentence. */
+export function fakeRequiredPoints(input: string): RequiredPointsOutput {
+  const points = [...input.matchAll(/^\[R(\d+)\] (.+)$/gm)].map(([, n, text]) => ({
+    n: Number(n),
+    text: text!,
+  }));
+  const report = input.match(/Report:\n<<<\n([\s\S]*)\n>>>/)?.[1] ?? "";
+  const sentences = report.split(/(?<=[.!?])\s+|\n+/).filter((s) => s.trim());
+  return {
+    points: points.map(({ n, text }) => {
+      const best = sentences
+        .map((s) => ({ s, score: overlap(text, s) }))
+        .sort((a, b) => b.score - a.score)[0];
+      const covered = (best?.score ?? 0) >= 0.6;
+      return { point: n, covered, quote: covered ? best!.s.trim() : "" };
+    }),
   };
 }

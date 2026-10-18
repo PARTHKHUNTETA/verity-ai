@@ -60,7 +60,14 @@ export async function listTasks(db: DbExecutor, organizationId: string, limit = 
   return db
     .select()
     .from(researchTasks)
-    .where(and(eq(researchTasks.organizationId, organizationId), isNull(researchTasks.deletedAt)))
+    .where(
+      and(
+        eq(researchTasks.organizationId, organizationId),
+        isNull(researchTasks.deletedAt),
+        // Tasks created by offline eval runs are shown on the eval run instead.
+        eq(researchTasks.origin, "user"),
+      ),
+    )
     .orderBy(desc(researchTasks.createdAt))
     .limit(limit);
 }

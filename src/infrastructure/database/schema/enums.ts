@@ -112,3 +112,13 @@ export const spanStatus = pgEnum("span_status", spanStatuses);
 export const claimVerdicts = ["supported", "partial", "unsupported"] as const;
 export type ClaimVerdict = (typeof claimVerdicts)[number];
 export const claimVerdict = pgEnum("claim_verdict", claimVerdicts);
+
+/** Offline evaluation run lifecycle (Phase 11). */
+export const evalRunStatuses = ["queued", "running", "completed", "failed", "cancelled"] as const;
+export type EvalRunStatus = (typeof evalRunStatuses)[number];
+export const evalRunStatus = pgEnum("eval_run_status", evalRunStatuses);
+
+/** Where a research task came from: a person, or an offline evaluation run. */
+export const taskOrigins = ["user", "eval"] as const;
+export type TaskOrigin = (typeof taskOrigins)[number];
+export const taskOrigin = pgEnum("task_origin", taskOrigins);

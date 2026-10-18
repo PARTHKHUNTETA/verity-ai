@@ -16,3 +16,10 @@ export type TargetMetric = keyof typeof TARGETS;
 
 /** The threshold that triggers the revision loop. */
 export const REVISION_THRESHOLD = TARGETS.claimSupportRate;
+
+/** What an offline eval case needs to pass (Phase 11). */
+export const CASE_PASS = {
+  claimSupport: 0.9,
+  requiredPoints: 0.8,
+  sourceRecall: 0.5,
+} as const;

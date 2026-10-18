@@ -37,7 +37,8 @@ export async function evaluateStage(ctx: StageContext): Promise<void> {
   let revision: ReportEvaluation["extra"]["revision"];
 
   const rate = first.scores.claimSupportRate;
-  if (rate !== null && rate < REVISION_THRESHOLD && first.weakClaims.length) {
+  const mayRevise = ctx.config.revise !== false;
+  if (mayRevise && rate !== null && rate < REVISION_THRESHOLD && first.weakClaims.length) {
     ctx.checkCancelled();
     const revisedId = await synthesizeStage(ctx, {
       version: 2,

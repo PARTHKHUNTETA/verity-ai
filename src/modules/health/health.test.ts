@@ -1,7 +1,7 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../app.js";
-import { testKnowledgeDeps, testResearchDeps } from "../../tests/helpers.js";
+import { fakeQueue, testKnowledgeDeps, testResearchDeps } from "../../tests/helpers.js";
 import { db } from "../../infrastructure/database/client.js";
 
 describe("GET /api/v1/health", () => {
@@ -10,6 +10,7 @@ describe("GET /api/v1/health", () => {
       db,
       research: testResearchDeps,
       knowledge: testKnowledgeDeps,
+      evals: { queue: fakeQueue },
       pingDatabase: async () => {},
     });
 
@@ -25,6 +26,7 @@ describe("GET /api/v1/health", () => {
       db,
       research: testResearchDeps,
       knowledge: testKnowledgeDeps,
+      evals: { queue: fakeQueue },
       pingDatabase: async () => {
         throw new Error("connection refused");
       },
