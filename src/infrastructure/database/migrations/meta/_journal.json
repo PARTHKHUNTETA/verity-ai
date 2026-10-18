@@ -43,6 +43,13 @@
       "when": 1792309847930,
       "tag": "0005_run_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792311450780,
+      "tag": "0006_pipeline",
+      "breakpoints": true
     }
   ]
 }

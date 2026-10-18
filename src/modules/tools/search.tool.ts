@@ -80,15 +80,15 @@ const STOPWORDS = new Set(
 );
 
 /**
- * Turns a natural-language question into arXiv search terms: drop stopwords and keep
- * acronyms (AI, LLM, RAG), which are short but carry most of the meaning.
+ * Key terms of a natural-language question: drop stopwords, keep acronyms (AI, LLM, RAG),
+ * which are short but carry most of the meaning.
  */
-export function arxivQuery(question: string, maxTerms = 4): string {
+export function keywords(question: string, maxTerms = 4): string[] {
   const words = question
     .replace(/[^A-Za-z0-9\s-]/g, " ")
     .split(/\s+/)
     .filter(Boolean);
-  const terms = [
+  return [
     ...new Set(
       words
         .filter(
@@ -97,7 +97,24 @@ export function arxivQuery(question: string, maxTerms = 4): string {
         .map((w) => w.toLowerCase()),
     ),
   ].slice(0, maxTerms);
-  return terms.map((t) => `all:${t}`).join(" AND ");
+}
+
+/** Turns a question into an arXiv query: all key terms must appear. */
+export function arxivQuery(question: string, maxTerms = 4): string {
+  return keywords(question, maxTerms)
+    .map((t) => `all:${t}`)
+    .join(" AND ");
+}
+
+/**
+ * arXiv asks API users for at most one request every 3 seconds. Each call reserves the next
+ * free slot, so concurrent runs in this process queue up politely.
+ */
+let nextArxivSlot = 0;
+async function arxivThrottle() {
+  const slot = Math.max(Date.now(), nextArxivSlot);
+  nextArxivSlot = slot + 3000;
+  if (slot > Date.now()) await new Promise((resolve) => setTimeout(resolve, slot - Date.now()));
 }
 
 /** arXiv: free preprint server for CS, physics, math… (https://info.arxiv.org/help/api). */
@@ -107,6 +124,7 @@ export function createArxivProvider(): SearchProvider {
     v === undefined ? [] : Array.isArray(v) ? v : [v];
 
   async function query(searchQuery: string, limit: number, signal?: AbortSignal) {
+    await arxivThrottle();
     const url = new URL("https://export.arxiv.org/api/query");
     url.searchParams.set("search_query", searchQuery);
     url.searchParams.set("max_results", String(limit));

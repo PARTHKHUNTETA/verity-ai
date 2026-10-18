@@ -1,4 +1,4 @@
-import { LlmError, type LlmClient } from "./types.js";
+import { LlmError, type LlmClient, type ToolCall, type ToolLoopItem } from "./types.js";
 
 const FAKE_ANSWER = `## Summary
 
@@ -45,9 +45,15 @@ function defaultAnswer(input: string): string {
   ].join("\n");
 }
 
-type FakeOptions = {
+export type FakeToolTurn = { text: string; toolCalls: Array<Omit<ToolCall, "callId">> };
+
+export type FakeOptions = {
   /** Text to stream (defaults to a canned answer that echoes the question). */
   answer?: (input: string) => string;
+  /** Structured outputs by schema name: return an object for the given input. */
+  objects?: Record<string, (input: string) => unknown>;
+  /** Tool loop behavior: decide the next turn from the conversation so far. */
+  toolTurn?: (items: ToolLoopItem[]) => FakeToolTurn;
   /** Delay between chunks in ms (0 in tests). */
   delayMs?: number;
   /** Throw this error after streaming `failAfterChunks` chunks. */
@@ -85,6 +91,43 @@ export function createFakeLlmClient(options: FakeOptions = {}): LlmClient {
       };
     },
 
+    async generateObject({ input, schema, schemaName }) {
+      const make = options.objects?.[schemaName];
+      if (!make)
+        throw new LlmError(`Fake provider has no behavior for "${schemaName}"`, "NO_FAKE", false);
+      const result = schema.safeParse(make(input));
+      if (!result.success) {
+        throw new LlmError(
+          `Fake output for "${schemaName}" is invalid: ${result.error.message}`,
+          "SCHEMA_MISMATCH",
+          false,
+        );
+      }
+      return {
+        object: result.data,
+        model: "fake-model",
+        usage: fakeUsage(input, JSON.stringify(result.data)),
+      };
+    },
+
+    async chatWithTools({ items }) {
+      const turn = options.toolTurn?.(items) ?? { text: "No tools were needed.", toolCalls: [] };
+      const toolCalls = turn.toolCalls.map((c, i) => ({
+        ...c,
+        callId: `fake_call_${items.length}_${i}`,
+      }));
+      const input = items
+        .map((i) => (i.type === "user" ? i.content : i.type === "tool_result" ? i.output : ""))
+        .join("\n");
+      return {
+        text: turn.text,
+        toolCalls,
+        assistant: { type: "assistant", raw: { text: turn.text, toolCalls } },
+        model: "fake-model",
+        usage: fakeUsage(input, turn.text + JSON.stringify(toolCalls)),
+      };
+    },
+
     async embed(texts) {
       return {
         embeddings: texts.map(hashEmbedding),
@@ -95,6 +138,14 @@ export function createFakeLlmClient(options: FakeOptions = {}): LlmClient {
         },
       };
     },
+  };
+}
+
+function fakeUsage(input: string, output: string) {
+  return {
+    inputTokens: Math.ceil(input.length / 4),
+    outputTokens: Math.ceil(output.length / 4),
+    cachedInputTokens: 0,
   };
 }
 

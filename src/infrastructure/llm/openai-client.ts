@@ -1,5 +1,13 @@
 import OpenAI, { APIError, APIUserAbortError } from "openai";
-import { LlmError, type LlmClient, type LlmResult, type LlmUsage } from "./types.js";
+import { toStrictJsonSchema } from "./json-schema.js";
+import {
+  LlmError,
+  type LlmClient,
+  type LlmResult,
+  type LlmUsage,
+  type ToolCall,
+  type ToolLoopItem,
+} from "./types.js";
 
 /** OpenAI implementation using the Responses API with streaming. */
 export function createOpenAiClient(apiKey: string): LlmClient {
@@ -50,6 +58,102 @@ export function createOpenAiClient(apiKey: string): LlmClient {
       }
     },
 
+    async generateObject({ model, instructions, input, schema, schemaName, signal }) {
+      try {
+        const res = await client.responses.create(
+          {
+            model,
+            instructions,
+            input,
+            store: false,
+            text: {
+              format: {
+                type: "json_schema",
+                name: schemaName,
+                schema: toStrictJsonSchema(schema),
+                strict: true,
+              },
+            },
+          },
+          { signal },
+        );
+        if (res.status === "incomplete") {
+          throw new LlmError(
+            `Response incomplete: ${res.incomplete_details?.reason ?? "unknown reason"}`,
+            "INCOMPLETE",
+            false,
+          );
+        }
+        const refusal = res.output
+          .flatMap((item) => (item.type === "message" ? item.content : []))
+          .find((c) => c.type === "refusal");
+        if (refusal && refusal.type === "refusal") {
+          throw new LlmError(`The model refused: ${refusal.refusal}`, "REFUSED", false);
+        }
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(res.output_text);
+        } catch {
+          throw new LlmError("The model returned invalid JSON", "INVALID_JSON", true);
+        }
+        const result = schema.safeParse(parsed);
+        if (!result.success) {
+          throw new LlmError(
+            `The model's output didn't match the schema: ${result.error.issues[0]?.message ?? ""}`,
+            "SCHEMA_MISMATCH",
+            true,
+          );
+        }
+        return { object: result.data, model: res.model, usage: toUsage(res.usage) };
+      } catch (err) {
+        throw toLlmError(err);
+      }
+    },
+
+    async chatWithTools({ model, instructions, items, tools, signal }) {
+      try {
+        const res = await client.responses.create(
+          {
+            model,
+            instructions,
+            input: items.flatMap(toInputItems) as OpenAI.Responses.ResponseInput,
+            tools: tools.map((t) => ({
+              type: "function" as const,
+              name: t.name,
+              description: t.description,
+              parameters: toStrictJsonSchema(t.parameters),
+              strict: true,
+            })),
+            store: false,
+            // Without server-side storage, reasoning models need their (encrypted) reasoning
+            // sent back on the next turn to keep thinking where they left off.
+            include: ["reasoning.encrypted_content"],
+          },
+          { signal },
+        );
+        const toolCalls: ToolCall[] = [];
+        for (const item of res.output) {
+          if (item.type !== "function_call") continue;
+          let args: unknown;
+          try {
+            args = JSON.parse(item.arguments);
+          } catch {
+            args = null;
+          }
+          toolCalls.push({ callId: item.call_id, name: item.name, arguments: args });
+        }
+        return {
+          text: res.output_text,
+          toolCalls,
+          assistant: { type: "assistant", raw: res.output },
+          model: res.model,
+          usage: toUsage(res.usage),
+        };
+      } catch (err) {
+        throw toLlmError(err);
+      }
+    },
+
     async embed(texts, model) {
       try {
         const res = await client.embeddings.create({ model, input: texts });
@@ -62,6 +166,18 @@ export function createOpenAiClient(apiKey: string): LlmClient {
       }
     },
   };
+}
+
+/** Provider-neutral conversation items → Responses API input items. */
+function toInputItems(item: ToolLoopItem): unknown[] {
+  switch (item.type) {
+    case "user":
+      return [{ role: "user", content: item.content }];
+    case "assistant":
+      return item.raw as unknown[];
+    case "tool_result":
+      return [{ type: "function_call_output", call_id: item.callId, output: item.output }];
+  }
 }
 
 function toUsage(usage: OpenAI.Responses.ResponseUsage | null | undefined): LlmUsage {

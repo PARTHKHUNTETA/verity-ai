@@ -1,12 +1,15 @@
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { DbExecutor } from "../../infrastructure/database/client.js";
 import {
+  agentSteps,
   evidence,
   reports,
   researchRuns,
   researchTasks,
   runSources,
   sourceChunks,
+  subQuestions,
+  toolCalls,
   sources,
   type ResearchRun,
   type ResearchTask,
@@ -123,6 +126,10 @@ export async function listCitations(db: DbExecutor, organizationId: string, runI
       sourceId: evidence.sourceId,
       sourceTitle: sources.title,
       quote: evidence.quote,
+      stance: evidence.stance,
+      confidence: evidence.confidence,
+      note: evidence.note,
+      subQuestionId: evidence.subQuestionId,
       pageStart: sourceChunks.pageStart,
       pageEnd: sourceChunks.pageEnd,
     })
@@ -149,4 +156,61 @@ export async function listRunSources(db: DbExecutor, organizationId: string, run
     .from(runSources)
     .where(and(eq(runSources.runId, runId), eq(runSources.organizationId, organizationId)))
     .orderBy(asc(runSources.rank));
+}
+
+/** The run's plan, with how much evidence each sub-question got. */
+export async function listSubQuestions(db: DbExecutor, organizationId: string, runId: string) {
+  return db
+    .select({
+      id: subQuestions.id,
+      position: subQuestions.position,
+      text: subQuestions.text,
+      rationale: subQuestions.rationale,
+      searchQueries: subQuestions.searchQueries,
+      coverage: subQuestions.coverage,
+      evidenceCount: count(evidence.id),
+    })
+    .from(subQuestions)
+    .leftJoin(evidence, eq(evidence.subQuestionId, subQuestions.id))
+    .where(and(eq(subQuestions.runId, runId), eq(subQuestions.organizationId, organizationId)))
+    .groupBy(subQuestions.id)
+    .orderBy(asc(subQuestions.position));
+}
+
+/** The step timeline (what the agent did, in order). */
+export async function listSteps(db: DbExecutor, organizationId: string, runId: string) {
+  return db
+    .select({
+      seq: agentSteps.seq,
+      stage: agentSteps.stage,
+      type: agentSteps.type,
+      input: agentSteps.input,
+      output: agentSteps.output,
+      model: agentSteps.model,
+      tokensInput: agentSteps.tokensInput,
+      tokensOutput: agentSteps.tokensOutput,
+      costUsd: agentSteps.costUsd,
+      durationMs: agentSteps.durationMs,
+      createdAt: agentSteps.createdAt,
+    })
+    .from(agentSteps)
+    .where(and(eq(agentSteps.runId, runId), eq(agentSteps.organizationId, organizationId)))
+    .orderBy(asc(agentSteps.seq));
+}
+
+export async function listToolCalls(db: DbExecutor, organizationId: string, runId: string) {
+  return db
+    .select({
+      id: toolCalls.id,
+      tool: toolCalls.tool,
+      args: toolCalls.args,
+      status: toolCalls.status,
+      result: toolCalls.result,
+      error: toolCalls.error,
+      durationMs: toolCalls.durationMs,
+      createdAt: toolCalls.createdAt,
+    })
+    .from(toolCalls)
+    .where(and(eq(toolCalls.runId, runId), eq(toolCalls.organizationId, organizationId)))
+    .orderBy(asc(toolCalls.createdAt));
 }

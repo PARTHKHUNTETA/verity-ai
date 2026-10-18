@@ -12,6 +12,8 @@ import {
 import { createLocalFileStorage } from "./infrastructure/storage/file-storage.js";
 import { createSafeFetcher } from "./infrastructure/http/safe-fetch.js";
 import { createAgentRuntime } from "./modules/agent/agent-runtime.js";
+import { researchFakes } from "./modules/agent/fakes.js";
+import { failStalledRuns } from "./modules/agent/maintenance.js";
 import { createAcquisitionService } from "./modules/retrieval/acquisition.js";
 import { parseDomainList } from "./modules/retrieval/urls.js";
 import { discoveryProvidersFrom } from "./modules/tools/discovery.js";
@@ -26,7 +28,8 @@ import { logger } from "./shared/logger.js";
  */
 const CONCURRENCY = 4;
 
-const llm = createLlmClient(env);
+// With LLM_PROVIDER=fake, every pipeline step uses deterministic stand-ins (modules/agent/fakes.ts).
+const llm = createLlmClient(env, researchFakes);
 const embeddingModel = embeddingModelFor(env);
 const events = createPgRunEventBus({ pool, connectionString: env.DATABASE_URL, logger });
 const storage = createLocalFileStorage(env.STORAGE_DIR);
@@ -75,7 +78,11 @@ await queue.boss.work<ResearchRunJob>(
     const controller = new AbortController();
     active.set(job.data.runId, controller);
     try {
-      await runtime.runResearch(job.data.runId, controller.signal);
+      // retryCount > 0: the previous worker died mid-run; continue from the saved state.
+      await runtime.runResearch(job.data.runId, {
+        signal: controller.signal,
+        resume: job.retryCount > 0,
+      });
     } finally {
       active.delete(job.data.runId);
     }
@@ -89,6 +96,17 @@ await queue.boss.work<SourceIngestJob>(
     if (job) await ingestion.ingestSource(job.data.sourceId);
   },
 );
+
+// Safety net: runs whose job was given up on (worker died twice) are marked failed.
+const sweep = setInterval(
+  () => {
+    failStalledRuns(db)
+      .then((ids) => ids.length && logger.warn({ runIds: ids }, "Marked stalled runs as failed"))
+      .catch((err) => logger.error({ err }, "Stalled-run sweep failed"));
+  },
+  5 * 60 * 1000,
+);
+sweep.unref();
 
 logger.info(
   `VerityAI worker started (LLM: ${llm.provider}, web search: ${providers.web?.name ?? "off"}, academic: ${providers.academic.map((p) => p.name).join(", ") || "off"}, queues: ${RESEARCH_RUN_QUEUE} ×${CONCURRENCY}, ${SOURCE_INGEST_QUEUE} ×2)`,

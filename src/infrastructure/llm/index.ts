@@ -1,11 +1,12 @@
 import type { Env } from "../../config/env.js";
-import { createFakeLlmClient } from "./fake-client.js";
+import { createFakeLlmClient, type FakeOptions } from "./fake-client.js";
 import { createOpenAiClient } from "./openai-client.js";
 import type { LlmClient } from "./types.js";
 
 export * from "./types.js";
 export { calculateCostUsd } from "./pricing.js";
-export { createFakeLlmClient } from "./fake-client.js";
+export { createFakeLlmClient, type FakeOptions, type FakeToolTurn } from "./fake-client.js";
+export { toStrictJsonSchema } from "./json-schema.js";
 
 /** The model name runs will record. Known without creating a client (the API needs it too). */
 export function chatModelFor(env: Pick<Env, "LLM_PROVIDER" | "OPENAI_MODEL">): string {
@@ -22,8 +23,12 @@ export function embeddingModelFor(
   return env.LLM_PROVIDER === "fake" ? "fake-embedding" : env.OPENAI_EMBEDDING_MODEL;
 }
 
-export function createLlmClient(env: Pick<Env, "LLM_PROVIDER" | "OPENAI_API_KEY">): LlmClient {
-  if (env.LLM_PROVIDER === "fake") return createFakeLlmClient();
+export function createLlmClient(
+  env: Pick<Env, "LLM_PROVIDER" | "OPENAI_API_KEY">,
+  /** Behaviors for the fake provider (the worker passes the research pipeline's fakes). */
+  fake?: FakeOptions,
+): LlmClient {
+  if (env.LLM_PROVIDER === "fake") return createFakeLlmClient(fake);
   if (!env.OPENAI_API_KEY) {
     throw new Error(
       'LLM_PROVIDER is "openai" but OPENAI_API_KEY is not set. Add it to .env, or set LLM_PROVIDER=fake.',

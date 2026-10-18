@@ -12,7 +12,16 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { createdAt, id, updatedAt } from "./columns.js";
-import { reportStatus, runSourceStatus, runStage, runStatus, stepType } from "./enums.js";
+import {
+  coverageStatus,
+  evidenceStance,
+  reportStatus,
+  runSourceStatus,
+  runStage,
+  runStatus,
+  stepType,
+  toolCallStatus,
+} from "./enums.js";
 import { organizations, users } from "./identity.js";
 import { sourceChunks, sources } from "./knowledge.js";
 
@@ -57,6 +66,8 @@ export const researchRuns = pgTable(
     config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}),
     model: text("model").notNull(),
     promptVersion: text("prompt_version").notNull(),
+    /** Saved after every stage so a crashed run can resume (modules/agent/state.ts). */
+    state: jsonb("state").$type<Record<string, unknown>>(),
     stepCount: integer("step_count").notNull().default(0),
     tokensInput: integer("tokens_input").notNull().default(0),
     tokensOutput: integer("tokens_output").notNull().default(0),
@@ -117,6 +128,25 @@ export const reports = pgTable(
   (t) => [unique("reports_run_version_unique").on(t.runId, t.version)],
 );
 
+/** The plan: a research question broken into 2–5 sub-questions (Phase 7). */
+export const subQuestions = pgTable(
+  "sub_questions",
+  {
+    id: id(),
+    organizationId: organizationId(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => researchRuns.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    text: text("text").notNull(),
+    rationale: text("rationale"),
+    searchQueries: text("search_queries").array().notNull().default([]),
+    coverage: coverageStatus("coverage").notNull().default("pending"),
+    createdAt: createdAt(),
+  },
+  (t) => [unique("sub_questions_run_position_unique").on(t.runId, t.position)],
+);
+
 /**
  * Every source a run discovered (web or academic search) and what happened to it:
  * candidate → acquired (fetched + indexed) → used (cited), or rejected / blocked with a reason.
@@ -131,9 +161,19 @@ export const runSources = pgTable(
       .notNull()
       .references(() => researchRuns.id, { onDelete: "cascade" }),
     sourceId: uuid("source_id").references(() => sources.id, { onDelete: "set null" }),
+    subQuestionId: uuid("sub_question_id").references(() => subQuestions.id, {
+      onDelete: "set null",
+    }),
     url: text("url").notNull(),
+    /** Direct PDF link from the provider (arXiv, Semantic Scholar open access), if any. */
+    pdfUrl: text("pdf_url"),
     title: text("title"),
     snippet: text("snippet"),
+    /** Bibliographic details from the search result, kept until the document is acquired. */
+    metadata: jsonb("metadata")
+      .$type<{ authors?: string[]; publishedAt?: string; doi?: string }>()
+      .notNull()
+      .default({}),
     provider: text("provider").notNull(),
     discoveredVia: text("discovered_via").notNull(),
     query: text("query"),
@@ -147,9 +187,9 @@ export const runSources = pgTable(
 );
 
 /**
- * A passage the agent used as evidence. Phase 5: each retrieved passage shown to the model is
- * one evidence row, numbered by `rank` (the model cites it as [rank]). Phase 7 adds extracted
- * quotes, stance and confidence per sub-question.
+ * An exact quote the agent extracted from a passage as evidence for a sub-question (Phase 7),
+ * numbered by `rank`: the report cites it as [rank]. The quote is checked to really occur in
+ * the passage before it is stored.
  */
 export const evidence = pgTable(
   "evidence",
@@ -163,14 +203,43 @@ export const evidence = pgTable(
     sourceId: uuid("source_id")
       .notNull()
       .references(() => sources.id, { onDelete: "cascade" }),
-    /** 1-based position in the retrieval results = the [n] the model sees and cites. */
+    subQuestionId: uuid("sub_question_id").references(() => subQuestions.id, {
+      onDelete: "set null",
+    }),
+    /** The [n] the report cites (1-based, unique per run). */
     rank: integer("rank").notNull(),
     quote: text("quote").notNull(),
-    /** Retrieval score (reciprocal rank fusion). */
+    stance: evidenceStance("stance"),
+    /** The model's confidence that the quote answers the sub-question, 0–1. */
+    confidence: real("confidence"),
+    /** A one-line explanation of what the quote shows. */
+    note: text("note"),
+    /** Retrieval score (reciprocal rank fusion) of the passage it came from. */
     score: real("score"),
     createdAt: createdAt(),
   },
   (t) => [unique("evidence_run_rank_unique").on(t.runId, t.rank)],
+);
+
+/** Tools the agent called (Phase 7: run_code), with arguments and results. */
+export const toolCalls = pgTable(
+  "tool_calls",
+  {
+    id: id(),
+    organizationId: organizationId(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => researchRuns.id, { onDelete: "cascade" }),
+    stepId: uuid("step_id").references(() => agentSteps.id, { onDelete: "set null" }),
+    tool: text("tool").notNull(),
+    args: jsonb("args").$type<Record<string, unknown>>().notNull(),
+    status: toolCallStatus("status").notNull().default("proposed"),
+    result: jsonb("result").$type<unknown>(),
+    error: text("error"),
+    durationMs: integer("duration_ms"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("tool_calls_run_idx").on(t.runId, t.createdAt)],
 );
 
 /** A factual statement in a report. Phase 5: every sentence that carries a citation. */
@@ -212,4 +281,6 @@ export type NewAgentStep = typeof agentSteps.$inferInsert;
 export type Report = typeof reports.$inferSelect;
 export type Evidence = typeof evidence.$inferSelect;
 export type RunSource = typeof runSources.$inferSelect;
+export type SubQuestion = typeof subQuestions.$inferSelect;
+export type ToolCallRow = typeof toolCalls.$inferSelect;
 export type Claim = typeof claims.$inferSelect;

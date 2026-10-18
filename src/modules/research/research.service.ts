@@ -8,7 +8,7 @@ import { terminalRunStatuses } from "../../infrastructure/database/schema/index.
 import type { RunEventPublisher } from "../../infrastructure/events/run-events.js";
 import type { ResearchJobQueue } from "../../infrastructure/queue/queue.js";
 import { ConflictError, ForbiddenError, NotFoundError } from "../../shared/errors.js";
-import { PROMPT_VERSION } from "../agent/prompts/answer.js";
+import { PIPELINE_VERSION } from "../agent/pipeline.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { can } from "../policies/permissions.js";
 import { filterReadable, readableCollectionIds } from "../sources/sources.repository.js";
@@ -23,6 +23,9 @@ import {
   listCitations,
   listRunSources,
   listRunsForTasks,
+  listSteps,
+  listSubQuestions,
+  listToolCalls,
   listTasks,
   markRunFailed,
 } from "./research.repository.js";
@@ -45,6 +48,8 @@ export function toRunDto(run: ResearchRun) {
     stage: run.stage,
     model: run.model,
     promptVersion: run.promptVersion,
+    /** Whether this run searches the web/academic databases (shows the discovery stages). */
+    discovery: Boolean((run.config as { discovery?: { enabled?: boolean } }).discovery?.enabled),
     tokensInput: run.tokensInput,
     tokensOutput: run.tokensOutput,
     costUsd: run.costUsd,
@@ -71,7 +76,13 @@ function toTaskDto(task: ResearchTask) {
 
 function toReportDto(report: Report | undefined) {
   return report
-    ? { id: report.id, version: report.version, status: report.status, contentMd: report.contentMd }
+    ? {
+        id: report.id,
+        version: report.version,
+        title: report.title,
+        status: report.status,
+        contentMd: report.contentMd,
+      }
     : null;
 }
 
@@ -83,6 +94,12 @@ export type RunDetail = {
   citations: Awaited<ReturnType<typeof listCitations>>;
   /** Sources found by web/academic search and what happened to each. */
   discovered: Awaited<ReturnType<typeof listRunSources>>;
+  /** The plan (Phase 7). */
+  subQuestions: Awaited<ReturnType<typeof listSubQuestions>>;
+  /** What the agent did, step by step. */
+  steps: Awaited<ReturnType<typeof listSteps>>;
+  /** Code the agent ran during analysis. */
+  toolCalls: Awaited<ReturnType<typeof listToolCalls>>;
 };
 
 /** A re-run keeps the discovery setting of the task's latest run. */
@@ -114,16 +131,19 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
     const ids = collectionIds
       ? await filterReadable(db, actor, collectionIds)
       : await readableCollectionIds(db, actor);
-    return { collectionIds: ids, topK: 8, discovery: { enabled: discover } };
+    return { collectionIds: ids, topK: 4, discovery: { enabled: discover } };
   }
 
   async function getRunDetail(actor: AuthContext, runId: string): Promise<RunDetail> {
     const row = await findRun(db, actor.organizationId, runId);
     if (!row) throw new NotFoundError("Run not found");
-    const [report, citations, discovered] = await Promise.all([
+    const [report, citations, discovered, plan, steps, codeRuns] = await Promise.all([
       findLatestReport(db, actor.organizationId, runId),
       listCitations(db, actor.organizationId, runId),
       listRunSources(db, actor.organizationId, runId),
+      listSubQuestions(db, actor.organizationId, runId),
+      listSteps(db, actor.organizationId, runId),
+      listToolCalls(db, actor.organizationId, runId),
     ]);
     return {
       run: toRunDto(row.run),
@@ -131,6 +151,9 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
       report: toReportDto(report),
       citations,
       discovered,
+      subQuestions: plan,
+      steps,
+      toolCalls: codeRuns,
     };
   }
 
@@ -154,7 +177,7 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
           taskId: task.id,
           startedBy: actor.userId,
           model: deps.model,
-          promptVersion: PROMPT_VERSION,
+          promptVersion: PIPELINE_VERSION,
           config,
         });
         return { task, run };
@@ -173,7 +196,7 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
         taskId,
         startedBy: actor.userId,
         model: deps.model,
-        promptVersion: PROMPT_VERSION,
+        promptVersion: PIPELINE_VERSION,
         config: await runConfig(actor, undefined, previousDiscovery(runs)),
       });
       await enqueue(run);

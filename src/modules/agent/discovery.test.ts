@@ -28,6 +28,7 @@ import { createIngestionService } from "../retrieval/ingestion.js";
 import { createSearchService } from "../retrieval/search.js";
 import { createFakeSearchProvider, type SearchResult } from "../tools/search.tool.js";
 import { createAgentRuntime } from "./agent-runtime.js";
+import { researchFakes } from "./fakes.js";
 
 const logger = pino({ level: "silent" });
 let server: Awaited<ReturnType<typeof startTestServer>>;
@@ -130,7 +131,7 @@ function buildRuntime() {
   });
   return createAgentRuntime({
     db,
-    llm: createFakeLlmClient({ delayMs: 0 }),
+    llm: createFakeLlmClient({ ...researchFakes, delayMs: 0 }),
     search: createSearchService(db, testLlm, "fake-embedding"),
     events: createInMemoryRunEventBus(),
     logger,

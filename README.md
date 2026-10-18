@@ -81,7 +81,8 @@ src/
 │   ├── organizations/     # current org + member management (Phase 2)
 │   ├── sources/           # collections, uploads, documents, search API (Phase 5)
 │   ├── retrieval/         # parsing (PDF/HTML/text), chunking, ingestion, hybrid search, acquisition
-│   ├── tools/             # search providers (Tavily, arXiv, Semantic Scholar) (Phase 6)
+│   ├── tools/             # search providers, code sandbox (QuickJS/WASM)
+│   ├── agent/             # pipeline: stages/, prompts/, runtime, state, budget, fakes (Phase 7)
 │   ├── audit/             # append-only audit log writer (Phase 2)
 │   ├── policies/          # permissions.ts: RBAC matrix (Phase 2); policy gateway (Phase 8)
 │   └── research/ agent/ tools/ policies/ retrieval/ evaluation/ observability/ reports/

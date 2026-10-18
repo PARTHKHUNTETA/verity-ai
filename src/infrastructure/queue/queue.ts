@@ -40,9 +40,10 @@ export async function createJobQueue(options: {
   await boss.start();
 
   await ensureQueue(boss, RESEARCH_RUN_QUEUE, {
-    // A failed run is marked failed and shown to the user; retrying silently would double-bill.
-    retryLimit: 0,
-    // If a worker dies mid-job, pg-boss gives up on the job after this long.
+    // Workers send a heartbeat; if one dies, the job fails after 60 s and is retried once.
+    // The retry resumes the run from its saved state (it doesn't start over or double-bill).
+    retryLimit: 1,
+    heartbeatSeconds: 60,
     expireInSeconds: 15 * 60,
   });
   await ensureQueue(boss, SOURCE_INGEST_QUEUE, {
@@ -70,7 +71,7 @@ export async function createJobQueue(options: {
 async function ensureQueue(
   boss: PgBoss,
   name: string,
-  options: { retryLimit: number; expireInSeconds: number },
+  options: { retryLimit: number; expireInSeconds: number; heartbeatSeconds?: number },
 ) {
   const existing = await boss.getQueue(name);
   if (!existing) await boss.createQueue(name, options);

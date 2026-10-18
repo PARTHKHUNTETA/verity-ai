@@ -67,3 +67,24 @@ export const sourceStatus = pgEnum("source_status", sourceStatuses);
 export const runSourceStatuses = ["candidate", "acquired", "used", "rejected", "blocked"] as const;
 export type RunSourceStatus = (typeof runSourceStatuses)[number];
 export const runSourceStatus = pgEnum("run_source_status", runSourceStatuses);
+
+/** Whether a planned sub-question ended up answered with evidence. */
+export const coverageStatuses = ["pending", "answered", "partial", "unanswered"] as const;
+export type CoverageStatus = (typeof coverageStatuses)[number];
+export const coverageStatus = pgEnum("coverage_status", coverageStatuses);
+
+/** How an evidence quote relates to its sub-question. */
+export const evidenceStances = ["supports", "contradicts", "neutral"] as const;
+export type EvidenceStance = (typeof evidenceStances)[number];
+export const evidenceStance = pgEnum("evidence_stance", evidenceStances);
+
+export const toolCallStatuses = [
+  "proposed",
+  "denied",
+  "awaiting_approval",
+  "running",
+  "succeeded",
+  "failed",
+] as const;
+export type ToolCallStatus = (typeof toolCallStatuses)[number];
+export const toolCallStatus = pgEnum("tool_call_status", toolCallStatuses);
