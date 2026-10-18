@@ -29,8 +29,13 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
 
-  // Required from later phases; optional until then. Empty strings count as "not set".
+  // --- LLM (Phase 4) ---
+  /** "fake" streams a canned answer: no API key or cost, used for tests and local development. */
+  LLM_PROVIDER: z.enum(["openai", "fake"]).default("openai"),
+  // Required when LLM_PROVIDER=openai (checked when the worker creates the client).
   OPENAI_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  OPENAI_MODEL: z.string().min(1).default("gpt-5-mini"),
+  OPENAI_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-small"),
 });
 
 export type Env = z.infer<typeof envSchema>;

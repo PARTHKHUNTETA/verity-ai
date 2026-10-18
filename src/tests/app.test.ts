@@ -2,12 +2,13 @@ import express from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
+import { testResearchDeps } from "./helpers.js";
 import { db } from "../infrastructure/database/client.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { requestId } from "../middleware/request-id.js";
 import { ForbiddenError } from "../shared/errors.js";
 
-const app = createApp({ db, pingDatabase: async () => {} });
+const app = createApp({ db, research: testResearchDeps, pingDatabase: async () => {} });
 
 describe("app middleware", () => {
   it("returns a JSON 404 with the request id for unknown routes", async () => {

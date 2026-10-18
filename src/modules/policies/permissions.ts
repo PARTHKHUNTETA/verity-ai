@@ -7,7 +7,8 @@ import type { MemberRole } from "../../infrastructure/database/schema/enums.js";
  */
 export const actions = [
   "report:read", // view reports, runs and scorecards
-  "run:create", // start research runs
+  "run:create", // start research runs (and cancel your own)
+  "run:manage", // cancel anyone's runs
   "source:create", // upload / manage own sources
   "collection:manage", // manage org-wide collections
   "approval:decide", // approve over-budget or restricted agent actions
@@ -29,6 +30,7 @@ const researcher: readonly Action[] = [
 
 const admin: readonly Action[] = [
   ...researcher,
+  "run:manage",
   "collection:manage",
   "approval:decide",
   "policy:manage",

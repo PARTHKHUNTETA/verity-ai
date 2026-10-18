@@ -2,7 +2,7 @@
   "name": "verity-ai-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "VerityAI — Evaluated Research Agent (API + worker). Research with evidence. Answers with confidence.",
+  "description": "VerityAI \u2014 Evaluated Research Agent (API + worker). Research with evidence. Answers with confidence.",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -20,7 +20,9 @@
     "db:down": "docker compose down",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "worker": "tsx watch src/worker.ts",
+    "start:worker": "node dist/worker.js"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",
@@ -30,7 +32,9 @@
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.1",
     "jose": "^6.2.12",
+    "openai": "^7.38.0",
     "pg": "^8.23.1",
+    "pg-boss": "^12.38.0",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
     "uuid": "^14.0.3",

@@ -6,6 +6,7 @@ import { actions, can, canAssignRole, type Action } from "./permissions.js";
 const expected: Record<Action, MemberRole[]> = {
   "report:read": ["owner", "admin", "researcher", "viewer"],
   "run:create": ["owner", "admin", "researcher"],
+  "run:manage": ["owner", "admin"],
   "source:create": ["owner", "admin", "researcher"],
   "collection:manage": ["owner", "admin"],
   "approval:decide": ["owner", "admin"],

@@ -15,3 +15,38 @@ export const tokenRevokeReasons = [
 ] as const;
 export type TokenRevokeReason = (typeof tokenRevokeReasons)[number];
 export const tokenRevokeReason = pgEnum("token_revoke_reason", tokenRevokeReasons);
+
+/** Lifecycle of one research run (docs/system-design.md §3). */
+export const runStatuses = [
+  "queued",
+  "running",
+  "awaiting_approval",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
+export type RunStatus = (typeof runStatuses)[number];
+export const runStatus = pgEnum("run_status", runStatuses);
+export const terminalRunStatuses: readonly RunStatus[] = ["completed", "failed", "cancelled"];
+
+/** Pipeline stages. Phase 4 uses only "synthesizing"; the rest arrive in Phase 7. */
+export const runStages = [
+  "planning",
+  "discovering",
+  "acquiring",
+  "retrieving",
+  "extracting",
+  "analyzing",
+  "synthesizing",
+  "evaluating",
+] as const;
+export type RunStage = (typeof runStages)[number];
+export const runStage = pgEnum("run_stage", runStages);
+
+export const stepTypes = ["llm_call", "tool_call", "observation", "stage_change", "error"] as const;
+export type StepType = (typeof stepTypes)[number];
+export const stepType = pgEnum("step_type", stepTypes);
+
+export const reportStatuses = ["draft", "final", "superseded"] as const;
+export type ReportStatus = (typeof reportStatuses)[number];
+export const reportStatus = pgEnum("report_status", reportStatuses);

@@ -2,14 +2,30 @@ import { sql } from "drizzle-orm";
 import request from "supertest";
 import { createApp } from "../app.js";
 import { db, pingDatabase } from "../infrastructure/database/client.js";
+import { createInMemoryRunEventBus } from "../infrastructure/events/run-events.js";
 
-export const app = createApp({ db, pingDatabase });
+/** Records enqueued run ids instead of using pg-boss. */
+export const fakeQueue = {
+  enqueued: [] as string[],
+  async enqueueResearchRun(runId: string) {
+    this.enqueued.push(runId);
+  },
+};
+
+/** In-process event bus; `testEvents.published` lists every event. */
+export const testEvents = createInMemoryRunEventBus();
+
+export const testResearchDeps = { queue: fakeQueue, events: testEvents, model: "fake-model" };
+
+export const app = createApp({ db, pingDatabase, research: testResearchDeps });
 
 /** Empties every app table between tests (keeps the schema and migration history). */
 export async function resetDatabase(): Promise<void> {
   await db.execute(
-    sql`truncate table audit_logs, refresh_tokens, organization_members, users, organizations restart identity cascade`,
+    sql`truncate table reports, agent_steps, research_runs, research_tasks, audit_logs, refresh_tokens, organization_members, users, organizations restart identity cascade`,
   );
+  fakeQueue.enqueued.length = 0;
+  testEvents.published.length = 0;
 }
 
 export const PASSWORD = "correct-horse-battery";
