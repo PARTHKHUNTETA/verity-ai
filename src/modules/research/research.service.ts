@@ -11,6 +11,7 @@ import type { RunEventPublisher } from "../../infrastructure/events/run-events.j
 import type { ResearchJobQueue } from "../../infrastructure/queue/queue.js";
 import { ConflictError, ForbiddenError, NotFoundError } from "../../shared/errors.js";
 import { PIPELINE_VERSION } from "../agent/pipeline.js";
+import { getRunTrace } from "../observability/trace.service.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { can } from "../policies/permissions.js";
 import { filterReadable, readableCollectionIds } from "../sources/sources.repository.js";
@@ -172,6 +173,13 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
 
   return {
     getRunDetail,
+
+    /** The run's trace (spans) and a time/cost summary; 404 for runs the actor can't see. */
+    async getTrace(actor: AuthContext, runId: string) {
+      const row = await findRun(db, actor.organizationId, runId);
+      if (!row) throw new NotFoundError("Run not found");
+      return getRunTrace(db, actor.organizationId, runId);
+    },
 
     /** Creates a task and its first run, then queues the run. */
     capabilities: () => deps.capabilities,

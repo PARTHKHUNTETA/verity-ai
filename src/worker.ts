@@ -14,6 +14,8 @@ import { createSafeFetcher } from "./infrastructure/http/safe-fetch.js";
 import { createAgentRuntime } from "./modules/agent/agent-runtime.js";
 import { researchFakes } from "./modules/agent/fakes.js";
 import { failStalledRuns } from "./modules/agent/maintenance.js";
+import { maintainTracePartitions } from "./modules/observability/maintenance.js";
+import { createTracer } from "./modules/observability/tracer.js";
 import { createApprovalsService } from "./modules/policies/approvals.service.js";
 import { createAcquisitionService } from "./modules/retrieval/acquisition.js";
 import { parseDomainList } from "./modules/retrieval/urls.js";
@@ -47,7 +49,10 @@ const acquisition = createAcquisitionService({
   ingestion,
   logger,
 });
+const tracer = createTracer({ db, logger });
+await maintainTracePartitions(db, logger);
 const runtime = createAgentRuntime({
+  tracer,
   db,
   llm,
   search,
@@ -115,6 +120,8 @@ const sweep = setInterval(
   5 * 60 * 1000,
 );
 sweep.unref();
+// Trace partitions: create upcoming months, drop expired ones.
+setInterval(() => void maintainTracePartitions(db, logger), 6 * 60 * 60 * 1000).unref();
 
 logger.info(
   `VerityAI worker started (LLM: ${llm.provider}, web search: ${providers.web?.name ?? "off"}, academic: ${providers.academic.map((p) => p.name).join(", ") || "off"}, queues: ${RESEARCH_RUN_QUEUE} ×${CONCURRENCY}, ${SOURCE_INGEST_QUEUE} ×2)`,
@@ -124,6 +131,7 @@ async function shutdown(signal: string) {
   logger.info({ signal }, "Worker shutting down");
   // Let running jobs finish (up to the queue's timeout) before closing connections.
   await queue.stop();
+  await tracer.shutdown(); // write any buffered spans
   await events.stop();
   await closeDatabase();
   process.exit(0);

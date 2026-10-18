@@ -3,6 +3,8 @@ import type { Logger } from "pino";
 import type { Database } from "../../infrastructure/database/client.js";
 import { sourceChunks, sources } from "../../infrastructure/database/schema/index.js";
 import type { LlmClient } from "../../infrastructure/llm/index.js";
+import { traceLlm } from "../observability/traced-llm.js";
+import { withSpan } from "../observability/tracer.js";
 import type { FileStorage } from "../../infrastructure/storage/file-storage.js";
 import { chunkPages } from "./chunker.js";
 import { parseDocument, type ParsedDocument, type SupportedMimeType } from "./parsers.js";
@@ -31,11 +33,12 @@ export class IngestionError extends Error {}
 
 export function createIngestionService({
   db,
-  llm,
+  llm: rawLlm,
   storage,
   embeddingModel,
   logger,
 }: IngestionDeps) {
+  const llm = traceLlm(rawLlm);
   async function fail(sourceId: string, message: string) {
     await db
       .update(sources)
@@ -44,7 +47,15 @@ export function createIngestionService({
   }
 
   /** Chunks, embeds and stores an already-parsed document; marks the source ready. */
-  async function ingestParsed(sourceId: string, parsed: ParsedDocument): Promise<number> {
+  function ingestParsed(sourceId: string, parsed: ParsedDocument): Promise<number> {
+    return withSpan("ingest.index", { sourceId, pages: parsed.pages.length }, async (span) => {
+      const chunks = await ingestParsedImpl(sourceId, parsed);
+      span.setAttributes({ chunks });
+      return chunks;
+    });
+  }
+
+  async function ingestParsedImpl(sourceId: string, parsed: ParsedDocument): Promise<number> {
     const [source] = await db.select().from(sources).where(eq(sources.id, sourceId));
     if (!source) throw new IngestionError("Source not found");
     await db

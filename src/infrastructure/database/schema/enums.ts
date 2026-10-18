@@ -102,3 +102,8 @@ export const approvalStatus = pgEnum("approval_status", approvalStatuses);
 export const approvalKinds = ["tool_call", "budget"] as const;
 export type ApprovalKind = (typeof approvalKinds)[number];
 export const approvalKind = pgEnum("approval_kind", approvalKinds);
+
+/** OpenTelemetry-style span status and kind. */
+export const spanStatuses = ["ok", "error"] as const;
+export type SpanStatus = (typeof spanStatuses)[number];
+export const spanStatus = pgEnum("span_status", spanStatuses);

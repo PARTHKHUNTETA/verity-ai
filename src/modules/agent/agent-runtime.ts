@@ -12,6 +12,8 @@ import {
 } from "../../infrastructure/database/schema/index.js";
 import type { RunEventPublisher } from "../../infrastructure/events/run-events.js";
 import { calculateCostUsd, LlmError, type LlmClient } from "../../infrastructure/llm/index.js";
+import { traceLlm } from "../observability/traced-llm.js";
+import { createTracer, withSpan, type Tracer } from "../observability/tracer.js";
 import { ApprovalRequiredError, createToolExecutor } from "../policies/executor.js";
 import { getActivePolicy } from "../policies/policies.repository.js";
 import { parseRules, type ToolName } from "../policies/policy-rules.js";
@@ -56,6 +58,8 @@ export type AgentRuntimeDeps = {
   sandbox?: CodeSandbox;
   /** Platform-wide domain rules (env), applied by the gateway on top of org policies. */
   platformDomains?: DomainPolicy;
+  /** Records the run's trace (Phase 9). Defaults to a tracer writing to this database. */
+  tracer?: Tracer;
   publishIntervalMs?: number;
   persistIntervalMs?: number;
 };
@@ -69,7 +73,10 @@ export type RunOptions = {
   resume?: boolean;
 };
 
-class RunCancelled extends Error {}
+class RunCancelled extends Error {
+  /** Cancelling is intentional: traces show it as an interruption, not an error. */
+  readonly traceAsOk = true;
+}
 class RunTimedOut extends Error {}
 
 type StageFn = (ctx: StageContext) => Promise<void>;
@@ -85,8 +92,11 @@ export function createAgentRuntime({
   platformDomains = { blocked: [], allowed: [] },
   publishIntervalMs = 100,
   persistIntervalMs = 1000,
+  tracer = createTracer({ db, logger }),
 }: AgentRuntimeDeps) {
   const executor = createToolExecutor({ db, logger });
+  // Every LLM call becomes a span with model, tokens and cost.
+  const tracedLlm = traceLlm(llm);
   const stageFns: Record<RunStage, StageFn | null> = {
     planning: planStage,
     discovering: discovery ? (ctx) => discoverStage(ctx, discovery) : null,
@@ -165,7 +175,7 @@ export function createAgentRuntime({
 
       const ctx: StageContext = {
         db,
-        llm,
+        llm: tracedLlm,
         search,
         events,
         logger,
@@ -241,91 +251,115 @@ export function createAgentRuntime({
         logger.info({ runId, summary }, "Run paused for approval");
       };
 
-      const started = Date.now();
-      try {
-        for (const stage of stages) {
-          if (state.completed.includes(stage)) continue;
-          checkCancelled();
-          await db.update(researchRuns).set({ stage }).where(eq(researchRuns.id, runId));
-          await publishStatus(runId, "running", stage);
-          await stageFns[stage]!(ctx);
-          checkCancelled();
-          state.completed.push(stage);
-          await saveState(db, runId, state);
-        }
-        await db
-          .update(researchRuns)
-          .set({ status: "completed", completedAt: new Date() })
-          .where(eq(researchRuns.id, runId));
-        await publishStatus(runId, "completed", "synthesizing");
-        logger.info(
-          { runId, ms: Date.now() - started, usage: state.usage, steps: state.steps },
-          "Run completed",
-        );
-      } catch (err) {
-        await saveState(db, runId, state).catch(() => {});
-        if (cancelSignal?.aborted || err instanceof RunCancelled) {
-          await db
-            .update(researchRuns)
-            .set({ completedAt: new Date() })
-            .where(eq(researchRuns.id, runId));
-          logger.info({ runId }, "Run cancelled");
-          return;
-        }
-        if (err instanceof ApprovalRequiredError) {
-          await pauseForApproval(err.summary);
-          return;
-        }
-        // Out of budget, and the policy says "ask": request more budget instead of failing.
-        if (
-          err instanceof BudgetExceededError &&
-          err.limit !== "timeoutMs" &&
-          rules.budget.onExceed === "require_approval"
-        ) {
-          const used =
-            err.limit === "maxSteps"
-              ? state.steps
-              : err.limit === "maxTokens"
-                ? state.usage.inputTokens + state.usage.outputTokens
-                : (state.usage.costUsd ?? 0);
-          const summary = `Allow more ${BUDGET_LABELS[err.limit]}: used ${used} of ${budget[err.limit]}`;
-          await db.insert(approvals).values({
-            organizationId: run.organizationId,
-            runId,
-            kind: "budget",
-            summary,
-            details: { limit: err.limit, max: budget[err.limit], used },
-            requestedBy: run.startedBy,
-            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-          });
-          await pauseForApproval(summary);
-          return;
-        }
-        const [code, message] =
-          err instanceof BudgetExceededError
-            ? ["BUDGET_EXCEEDED", err.message]
-            : timeout.aborted || err instanceof RunTimedOut
-              ? [
-                  "TIMEOUT",
-                  `The run took longer than ${Math.round(budget.timeoutMs / 60000)} minutes`,
-                ]
-              : err instanceof LlmError
-                ? [`LLM_${err.code}`.toUpperCase(), err.message]
-                : ["INTERNAL_ERROR", "The research run failed unexpectedly"];
-        if (code === "INTERNAL_ERROR") logger.error({ err, runId }, "Run failed");
-        else logger.warn({ runId, code, message }, "Run failed");
-        const [failed] = await db
-          .update(researchRuns)
-          .set({
-            status: "failed",
-            errorCode: code,
-            errorMessage: message,
-            completedAt: new Date(),
-          })
-          .where(eq(researchRuns.id, runId))
-          .returning({ stage: researchRuns.stage });
-        await publishStatus(runId, "failed", failed?.stage ?? null);
-      }
+      // One trace per run (trace id = run id); each attempt (first try, resume) is a root "run" span.
+      await tracer.inSpan(
+        "run",
+        {
+          traceId: runId,
+          organizationId: run.organizationId,
+          attributes: {
+            resumed: state.completed.length > 0,
+            model: run.model,
+            promptVersion: run.promptVersion,
+            policyVersion: policy.version,
+          },
+        },
+        async (root) => {
+          const started = Date.now();
+          try {
+            for (const stage of stages) {
+              if (state.completed.includes(stage)) continue;
+              checkCancelled();
+              await db.update(researchRuns).set({ stage }).where(eq(researchRuns.id, runId));
+              await publishStatus(runId, "running", stage);
+              await withSpan(`stage.${stage}`, { stage }, () => stageFns[stage]!(ctx));
+              checkCancelled();
+              state.completed.push(stage);
+              await saveState(db, runId, state);
+            }
+            await db
+              .update(researchRuns)
+              .set({ status: "completed", completedAt: new Date() })
+              .where(eq(researchRuns.id, runId));
+            await publishStatus(runId, "completed", "synthesizing");
+            root.setAttributes({ outcome: "completed", steps: state.steps, ...state.usage });
+            logger.info(
+              { runId, ms: Date.now() - started, usage: state.usage, steps: state.steps },
+              "Run completed",
+            );
+          } catch (err) {
+            await saveState(db, runId, state).catch(() => {});
+            if (cancelSignal?.aborted || err instanceof RunCancelled) {
+              await db
+                .update(researchRuns)
+                .set({ completedAt: new Date() })
+                .where(eq(researchRuns.id, runId));
+              root.setAttributes({ outcome: "cancelled" });
+              logger.info({ runId }, "Run cancelled");
+              return;
+            }
+            if (err instanceof ApprovalRequiredError) {
+              root.setAttributes({ outcome: "awaiting_approval", approval: err.summary });
+              await pauseForApproval(err.summary);
+              return;
+            }
+            // Out of budget, and the policy says "ask": request more budget instead of failing.
+            if (
+              err instanceof BudgetExceededError &&
+              err.limit !== "timeoutMs" &&
+              rules.budget.onExceed === "require_approval"
+            ) {
+              const used =
+                err.limit === "maxSteps"
+                  ? state.steps
+                  : err.limit === "maxTokens"
+                    ? state.usage.inputTokens + state.usage.outputTokens
+                    : (state.usage.costUsd ?? 0);
+              const summary = `Allow more ${BUDGET_LABELS[err.limit]}: used ${used} of ${budget[err.limit]}`;
+              await db.insert(approvals).values({
+                organizationId: run.organizationId,
+                runId,
+                kind: "budget",
+                summary,
+                details: { limit: err.limit, max: budget[err.limit], used },
+                requestedBy: run.startedBy,
+                expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              });
+              root.setAttributes({ outcome: "awaiting_approval", approval: summary });
+              await pauseForApproval(summary);
+              return;
+            }
+            const [code, message] =
+              err instanceof BudgetExceededError
+                ? ["BUDGET_EXCEEDED", err.message]
+                : timeout.aborted || err instanceof RunTimedOut
+                  ? [
+                      "TIMEOUT",
+                      `The run took longer than ${Math.round(budget.timeoutMs / 60000)} minutes`,
+                    ]
+                  : err instanceof LlmError
+                    ? [`LLM_${err.code}`.toUpperCase(), err.message]
+                    : ["INTERNAL_ERROR", "The research run failed unexpectedly"];
+            if (code === "INTERNAL_ERROR") logger.error({ err, runId }, "Run failed");
+            else logger.warn({ runId, code, message }, "Run failed");
+            const [failed] = await db
+              .update(researchRuns)
+              .set({
+                status: "failed",
+                errorCode: code,
+                errorMessage: message,
+                completedAt: new Date(),
+              })
+              .where(eq(researchRuns.id, runId))
+              .returning({ stage: researchRuns.stage });
+            await publishStatus(runId, "failed", failed?.stage ?? null);
+            root.setAttributes({ outcome: "failed", errorCode: code });
+            root.recordError(new Error(`${code}: ${message}`));
+          }
+        },
+      );
+      // Make the trace visible as soon as the attempt ends.
+      await tracer.flush();
     },
   };
 }

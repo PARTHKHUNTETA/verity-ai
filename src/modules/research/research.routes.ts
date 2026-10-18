@@ -40,6 +40,12 @@ export function researchRoutes(
     controller.startRun,
   );
   router.get(
+    "/runs/:runId/trace",
+    requirePermission("report:read"),
+    validate({ params: runParamsSchema }),
+    controller.getTrace,
+  );
+  router.get(
     "/runs/:runId",
     requirePermission("report:read"),
     validate({ params: runParamsSchema }),

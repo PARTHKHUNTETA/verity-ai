@@ -9,6 +9,7 @@ import {
   type Policy,
   type RunStage,
 } from "../../infrastructure/database/schema/index.js";
+import { short, withSpan } from "../observability/tracer.js";
 import { evaluateToolCall, type GatewayContext } from "./policy-gateway.js";
 import type { ToolName } from "./policy-rules.js";
 
@@ -29,6 +30,9 @@ export type ToolOutcome<T> =
 
 /** Thrown when a call needs a human decision; the runtime pauses the run. */
 export class ApprovalRequiredError extends Error {
+  /** Pausing for a human is intentional: traces show it as an interruption, not an error. */
+  readonly traceAsOk = true;
+
   constructor(
     public readonly approvalId: string,
     public readonly summary: string,
@@ -143,122 +147,154 @@ export function createToolExecutor({ db, logger }: { db: Database; logger: Logge
     return { status: "failed", error, toolCallId };
   }
 
+  async function executeInner<T>(
+    ctx: ExecutionContext,
+    tool: ToolName,
+    args: Record<string, unknown>,
+    fn: () => Promise<T>,
+    options: ExecuteOptions<T>,
+  ): Promise<ToolOutcome<T>> {
+    const argsHash = hashToolCall(tool, args);
+
+    // Seen before in this run (a resumed run repeating its steps)?
+    const [previous] = await db
+      .select()
+      .from(toolCalls)
+      .where(
+        and(
+          eq(toolCalls.runId, ctx.runId),
+          eq(toolCalls.argsHash, argsHash),
+          inArray(toolCalls.status, ["succeeded", "awaiting_approval"]),
+        ),
+      )
+      .orderBy(desc(toolCalls.createdAt))
+      .limit(1);
+    if (previous?.status === "succeeded") {
+      return {
+        status: "succeeded",
+        result: previous.result as T,
+        cached: true,
+        toolCallId: previous.id,
+      };
+    }
+    if (previous?.status === "awaiting_approval") {
+      const [approval] = await db
+        .select()
+        .from(approvals)
+        .where(eq(approvals.toolCallId, previous.id))
+        .orderBy(desc(approvals.createdAt))
+        .limit(1);
+      if (approval?.status === "pending")
+        throw new ApprovalRequiredError(approval.id, approval.summary);
+      if (approval?.status === "approved") {
+        await recordDecision(ctx, previous.id, {
+          decision: "allow",
+          matchedRule: "approved_by_reviewer",
+          reason: approval.comment ? `Approved: ${approval.comment}` : "Approved by a reviewer",
+          checks: [{ check: "approval", ok: true }],
+        });
+        await db.update(toolCalls).set({ status: "running" }).where(eq(toolCalls.id, previous.id));
+        return run(ctx, tool, previous.id, fn, options);
+      }
+      const reason =
+        approval?.status === "rejected"
+          ? `Rejected by a reviewer${approval.comment ? `: ${approval.comment}` : ""}`
+          : "The approval request expired";
+      await recordDecision(ctx, previous.id, {
+        decision: "deny",
+        matchedRule: approval?.status === "rejected" ? "rejected_by_reviewer" : "approval_expired",
+        reason,
+        checks: [{ check: "approval", ok: false }],
+      });
+      await db
+        .update(toolCalls)
+        .set({ status: "denied", error: reason })
+        .where(eq(toolCalls.id, previous.id));
+      return { status: "denied", reason, toolCallId: previous.id };
+    }
+
+    // New call: ask the gateway, and record the call and the decision either way.
+    const evaluation = await withSpan("policy.check", { tool }, async (span) => {
+      const result = await evaluateToolCall(ctx, tool, args);
+      span.setAttributes({
+        decision: result.decision,
+        rule: result.matchedRule,
+        reason: short(result.reason),
+      });
+      return result;
+    });
+    const status =
+      evaluation.decision === "allow"
+        ? ("running" as const)
+        : evaluation.decision === "deny"
+          ? ("denied" as const)
+          : ("awaiting_approval" as const);
+    const [call] = await db
+      .insert(toolCalls)
+      .values({
+        organizationId: ctx.organizationId,
+        runId: ctx.runId,
+        stage: options.stage,
+        tool,
+        args,
+        argsHash,
+        status,
+        error: evaluation.decision === "deny" ? evaluation.reason : null,
+      })
+      .returning({ id: toolCalls.id });
+    const decisionId = await recordDecision(ctx, call!.id, evaluation);
+
+    if (evaluation.decision === "deny") {
+      return { status: "denied", reason: evaluation.reason, toolCallId: call!.id };
+    }
+    if (evaluation.decision === "require_approval") {
+      const summary = options.summary ?? `Run the ${tool} tool`;
+      const [approval] = await db
+        .insert(approvals)
+        .values({
+          organizationId: ctx.organizationId,
+          runId: ctx.runId,
+          kind: "tool_call",
+          toolCallId: call!.id,
+          policyDecisionId: decisionId,
+          summary,
+          details: { tool, args, reason: evaluation.reason },
+          requestedBy: ctx.startedBy,
+          expiresAt: new Date(Date.now() + APPROVAL_TTL_MS),
+        })
+        .returning({ id: approvals.id });
+      throw new ApprovalRequiredError(approval!.id, summary);
+    }
+    return run(ctx, tool, call!.id, fn, options);
+  }
+
   return {
-    async execute<T>(
+    /** Runs one tool call through the gateway, as a "tool.<name>" span in the run's trace. */
+    execute<T>(
       ctx: ExecutionContext,
       tool: ToolName,
       args: Record<string, unknown>,
       fn: () => Promise<T>,
       options: ExecuteOptions<T>,
     ): Promise<ToolOutcome<T>> {
-      const argsHash = hashToolCall(tool, args);
-
-      // Seen before in this run (a resumed run repeating its steps)?
-      const [previous] = await db
-        .select()
-        .from(toolCalls)
-        .where(
-          and(
-            eq(toolCalls.runId, ctx.runId),
-            eq(toolCalls.argsHash, argsHash),
-            inArray(toolCalls.status, ["succeeded", "awaiting_approval"]),
-          ),
-        )
-        .orderBy(desc(toolCalls.createdAt))
-        .limit(1);
-      if (previous?.status === "succeeded") {
-        return {
-          status: "succeeded",
-          result: previous.result as T,
-          cached: true,
-          toolCallId: previous.id,
-        };
-      }
-      if (previous?.status === "awaiting_approval") {
-        const [approval] = await db
-          .select()
-          .from(approvals)
-          .where(eq(approvals.toolCallId, previous.id))
-          .orderBy(desc(approvals.createdAt))
-          .limit(1);
-        if (approval?.status === "pending")
-          throw new ApprovalRequiredError(approval.id, approval.summary);
-        if (approval?.status === "approved") {
-          await recordDecision(ctx, previous.id, {
-            decision: "allow",
-            matchedRule: "approved_by_reviewer",
-            reason: approval.comment ? `Approved: ${approval.comment}` : "Approved by a reviewer",
-            checks: [{ check: "approval", ok: true }],
-          });
-          await db
-            .update(toolCalls)
-            .set({ status: "running" })
-            .where(eq(toolCalls.id, previous.id));
-          return run(ctx, tool, previous.id, fn, options);
-        }
-        const reason =
-          approval?.status === "rejected"
-            ? `Rejected by a reviewer${approval.comment ? `: ${approval.comment}` : ""}`
-            : "The approval request expired";
-        await recordDecision(ctx, previous.id, {
-          decision: "deny",
-          matchedRule:
-            approval?.status === "rejected" ? "rejected_by_reviewer" : "approval_expired",
-          reason,
-          checks: [{ check: "approval", ok: false }],
-        });
-        await db
-          .update(toolCalls)
-          .set({ status: "denied", error: reason })
-          .where(eq(toolCalls.id, previous.id));
-        return { status: "denied", reason, toolCallId: previous.id };
-      }
-
-      // New call: ask the gateway, and record the call and the decision either way.
-      const evaluation = await evaluateToolCall(ctx, tool, args);
-      const status =
-        evaluation.decision === "allow"
-          ? ("running" as const)
-          : evaluation.decision === "deny"
-            ? ("denied" as const)
-            : ("awaiting_approval" as const);
-      const [call] = await db
-        .insert(toolCalls)
-        .values({
-          organizationId: ctx.organizationId,
-          runId: ctx.runId,
-          stage: options.stage,
+      return withSpan(
+        `tool.${tool}`,
+        {
           tool,
-          args,
-          argsHash,
-          status,
-          error: evaluation.decision === "deny" ? evaluation.reason : null,
-        })
-        .returning({ id: toolCalls.id });
-      const decisionId = await recordDecision(ctx, call!.id, evaluation);
-
-      if (evaluation.decision === "deny") {
-        return { status: "denied", reason: evaluation.reason, toolCallId: call!.id };
-      }
-      if (evaluation.decision === "require_approval") {
-        const summary = options.summary ?? `Run the ${tool} tool`;
-        const [approval] = await db
-          .insert(approvals)
-          .values({
-            organizationId: ctx.organizationId,
-            runId: ctx.runId,
-            kind: "tool_call",
-            toolCallId: call!.id,
-            policyDecisionId: decisionId,
-            summary,
-            details: { tool, args, reason: evaluation.reason },
-            requestedBy: ctx.startedBy,
-            expiresAt: new Date(Date.now() + APPROVAL_TTL_MS),
-          })
-          .returning({ id: approvals.id });
-        throw new ApprovalRequiredError(approval!.id, summary);
-      }
-      return run(ctx, tool, call!.id, fn, options);
+          stage: options.stage,
+          target: short(String(args.url ?? args.query ?? args.purpose ?? ""), 120),
+        },
+        async (span) => {
+          const outcome = await executeInner(ctx, tool, args, fn, options);
+          span.setAttributes({
+            outcome: outcome.status,
+            cached: outcome.status === "succeeded" ? outcome.cached : false,
+            reason: outcome.status === "denied" ? short(outcome.reason) : undefined,
+          });
+          if (outcome.status === "failed") span.recordError(outcome.error);
+          return outcome;
+        },
+      );
     },
   };
 }

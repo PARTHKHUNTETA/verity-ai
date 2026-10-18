@@ -8,6 +8,7 @@ import { BlockedUrlError } from "../../infrastructure/http/ssrf.js";
 import type { SafeFetcher } from "../../infrastructure/http/safe-fetch.js";
 import type { FileStorage } from "../../infrastructure/storage/file-storage.js";
 import { isUniqueViolation } from "../../shared/db-errors.js";
+import { withSpan } from "../observability/tracer.js";
 import type { SearchResult } from "../tools/search.tool.js";
 import { IngestionError, type IngestionService } from "./ingestion.js";
 import {
@@ -86,11 +87,29 @@ export function createAcquisitionService({
     signal?: AbortSignal,
   ): Promise<FetchedDocument | AcquireResult> {
     try {
-      const res = await fetcher(candidate.pdfUrl ?? candidate.url, signal);
+      const target = candidate.pdfUrl ?? candidate.url;
+      const res = await withSpan(
+        "fetch.http",
+        { url: target, host: new URL(target).host },
+        async (span) => {
+          const response = await fetcher(target, signal);
+          span.setAttributes({
+            status: response.status,
+            bytes: response.body.byteLength,
+            contentType: response.contentType,
+          });
+          return response;
+        },
+        "client",
+      );
       const mimeType = mimeTypeFromResponse(res.contentType, res.body);
       if (!mimeType)
         throw new IngestionError(`Unsupported content type (${res.contentType ?? "unknown"})`);
-      const parsed = await parseDocument(res.body, mimeType);
+      const parsed = await withSpan("parse", { mimeType }, async (span) => {
+        const doc = await parseDocument(res.body, mimeType);
+        span.setAttributes({ pages: doc.pages.length, characters: doc.pages.join("").length });
+        return doc;
+      });
       if (parsed.pages.join(" ").trim().length < MIN_TEXT_CHARS) {
         throw new IngestionError("The page has too little readable text");
       }

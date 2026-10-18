@@ -57,6 +57,13 @@
       "when": 1792312047913,
       "tag": "0007_governance",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792322054895,
+      "tag": "0008_trace_spans",
+      "breakpoints": true
     }
   ]
 }

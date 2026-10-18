@@ -53,13 +53,25 @@ For a hand-written migration (extensions, partitions, roles): `npx drizzle-kit g
 
 ## API (so far)
 
-| Method                | Path                                                     | Auth                    |
-| --------------------- | -------------------------------------------------------- | ----------------------- |
-| GET                   | `/api/v1/health`                                         | public                  |
-| POST                  | `/api/v1/auth/register` · `login` · `refresh` · `logout` | public / refresh cookie |
-| GET                   | `/api/v1/me`                                             | Bearer token            |
-| GET                   | `/api/v1/organization` · `/organization/members`         | `member:read`           |
-| POST · PATCH · DELETE | `/api/v1/organization/members[/:userId]`                 | `member:manage`         |
+| Method                | Path                                                                      | Auth                                                            |
+| --------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| GET                   | `/api/v1/health`                                                          | public                                                          |
+| POST                  | `/api/v1/auth/register` · `login` · `refresh` · `logout`                  | public / refresh cookie                                         |
+| GET                   | `/api/v1/me`                                                              | Bearer token                                                    |
+| GET                   | `/api/v1/organization` · `/organization/members`                          | `member:read`                                                   |
+| POST · PATCH · DELETE | `/api/v1/organization/members[/:userId]`                                  | `member:manage`                                                 |
+| GET                   | `/api/v1/research/capabilities` (which search providers are on)           | `report:read`                                                   |
+| GET · POST            | `/api/v1/research/tasks`                                                  | `report:read` / `run:create`                                    |
+| GET · POST            | `/api/v1/research/tasks/:taskId` · `/tasks/:taskId/runs` (re-run)         | `report:read` / `run:create`                                    |
+| GET                   | `/api/v1/research/runs/:runId` · `/runs/:runId/stream` (SSE)              | `report:read`                                                   |
+| POST                  | `/api/v1/research/runs/:runId/cancel`                                     | own run, or `run:manage`                                        |
+| GET · POST            | `/api/v1/collections`                                                     | `report:read` / `source:create` (org-wide: `collection:manage`) |
+| GET · DELETE          | `/api/v1/collections/:id`                                                 | read access / creator or `collection:manage`                    |
+| POST · DELETE         | `/api/v1/collections/:id/sources[/:sourceId]` (multipart `file`)          | creator or `collection:manage`                                  |
+| GET                   | `/api/v1/sources/:id` · `/sources/:id/chunks`                             | read access (fetched web sources: any member)                   |
+| POST                  | `/api/v1/search`                                                          | `report:read` (searches readable collections)                   |
+| GET · PUT             | `/api/v1/policies/active` · GET `/policies/versions`                      | `policy:manage`                                                 |
+| GET                   | `/api/v1/approvals` · `/approvals/count` · POST `/approvals/:id/decision` | `approval:decide`                                               |
 
 Access tokens (15 min) go in `Authorization: Bearer <token>`. The refresh token lives in the httpOnly
 `verity_refresh` cookie and is rotated on every `/auth/refresh`. Roles and permissions:
@@ -84,8 +96,9 @@ src/
 │   ├── tools/             # search providers, code sandbox (QuickJS/WASM)
 │   ├── agent/             # pipeline: stages/, prompts/, runtime, state, budget, fakes (Phase 7)
 │   ├── audit/             # append-only audit log writer (Phase 2)
-│   ├── policies/          # permissions.ts: RBAC matrix (Phase 2); policy gateway (Phase 8)
-│   └── research/ agent/ tools/ policies/ retrieval/ evaluation/ observability/ reports/
+│   ├── policies/          # RBAC (permissions.ts), policy rules, gateway, executor, approvals (Phase 8)
+│   ├── research/          # research tasks, runs, SSE stream (Phase 4)
+│   └── evaluation/ observability/ reports/   # coming in Phases 9–12
 ├── infrastructure/
 │   ├── database/          # drizzle client, schema/, migrations/
 │   ├── llm/               # LLM interface, OpenAI + fake providers, pricing

@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "../../infrastructure/database/client.js";
 import type { LlmClient } from "../../infrastructure/llm/index.js";
+import { traceLlm } from "../observability/traced-llm.js";
+import { short, withSpan } from "../observability/tracer.js";
 
 /**
  * Hybrid search (docs/db-design.md §6.1):
@@ -52,29 +54,46 @@ function uuidArray(ids: string[]) {
     : sql`ARRAY[]::uuid[]`;
 }
 
-export function createSearchService(db: Database, llm: LlmClient, embeddingModel: string) {
+export function createSearchService(db: Database, rawLlm: LlmClient, embeddingModel: string) {
+  const llm = traceLlm(rawLlm);
   return {
-    async search(query: string, options: SearchOptions): Promise<SearchHit[]> {
-      const { organizationId, collectionIds, sourceIds = [], topK = 8, candidates = 30 } = options;
-      if ((collectionIds.length === 0 && sourceIds.length === 0) || !query.trim()) return [];
+    search: (query: string, options: SearchOptions) =>
+      withSpan(
+        "rag.search",
+        {
+          query: short(query, 120),
+          collections: options.collectionIds.length,
+          sources: options.sourceIds?.length ?? 0,
+        },
+        async (span) => {
+          const hits = await searchImpl(query, options);
+          span.setAttributes({ hits: hits.length, topScore: hits[0]?.score ?? null });
+          return hits;
+        },
+      ),
+  };
 
-      const {
-        embeddings: [embedding],
-      } = await llm.embed([query], embeddingModel);
-      const vectorLiteral = `[${embedding!.join(",")}]`;
+  async function searchImpl(query: string, options: SearchOptions): Promise<SearchHit[]> {
+    const { organizationId, collectionIds, sourceIds = [], topK = 8, candidates = 30 } = options;
+    if ((collectionIds.length === 0 && sourceIds.length === 0) || !query.trim()) return [];
 
-      const result = await db.execute<{
-        chunk_id: string;
-        source_id: string;
-        source_title: string;
-        source_domain: string | null;
-        content: string;
-        page_start: number | null;
-        page_end: number | null;
-        score: string;
-        vector_rank: number | null;
-        keyword_rank: number | null;
-      }>(sql`
+    const {
+      embeddings: [embedding],
+    } = await llm.embed([query], embeddingModel);
+    const vectorLiteral = `[${embedding!.join(",")}]`;
+
+    const result = await db.execute<{
+      chunk_id: string;
+      source_id: string;
+      source_title: string;
+      source_domain: string | null;
+      content: string;
+      page_start: number | null;
+      page_end: number | null;
+      score: string;
+      vector_rank: number | null;
+      keyword_rank: number | null;
+    }>(sql`
         WITH searchable AS (
           SELECT s.id
           FROM sources s
@@ -121,20 +140,19 @@ export function createSearchService(db: Database, llm: LlmClient, embeddingModel
         LIMIT ${topK}
       `);
 
-      return result.rows.map((r) => ({
-        chunkId: r.chunk_id,
-        sourceId: r.source_id,
-        sourceTitle: r.source_title,
-        sourceDomain: r.source_domain,
-        content: r.content,
-        pageStart: r.page_start,
-        pageEnd: r.page_end,
-        score: Number(r.score),
-        vectorRank: r.vector_rank,
-        keywordRank: r.keyword_rank,
-      }));
-    },
-  };
+    return result.rows.map((r) => ({
+      chunkId: r.chunk_id,
+      sourceId: r.source_id,
+      sourceTitle: r.source_title,
+      sourceDomain: r.source_domain,
+      content: r.content,
+      pageStart: r.page_start,
+      pageEnd: r.page_end,
+      score: Number(r.score),
+      vectorRank: r.vector_rank,
+      keywordRank: r.keyword_rank,
+    }));
+  }
 }
 
 export type SearchService = ReturnType<typeof createSearchService>;

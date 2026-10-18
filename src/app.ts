@@ -11,6 +11,7 @@ import { requestId } from "./middleware/request-id.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
+import { observabilityRoutes } from "./modules/observability/observability.routes.js";
 import { organizationRoutes } from "./modules/organizations/organizations.routes.js";
 import { approvalsRoutes, policiesRoutes } from "./modules/policies/policies.routes.js";
 import { researchRoutes } from "./modules/research/research.routes.js";
@@ -62,6 +63,7 @@ export function createApp(deps: AppDependencies): Express {
   const search = createSearchService(deps.db, deps.knowledge.llm, deps.knowledge.embeddingModel);
   api.use("/research", researchRoutes(deps.db, deps.research));
   api.use("/policies", policiesRoutes(deps.db));
+  api.use("/observability", observabilityRoutes(deps.db));
   api.use("/approvals", approvalsRoutes(deps.db, deps.research));
   api.use(sourcesRoutes(deps.db, { ...deps.knowledge, search }));
   // Later phases mount their module routers here, e.g. api.use("/research", researchRoutes(...)).
