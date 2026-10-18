@@ -17,8 +17,13 @@ cp .env.example .env      # local settings (already matches docker-compose.yml)
 npm install
 npm run db:up             # start Postgres + pgvector on localhost:5433
 npm run db:migrate        # apply migrations
-npm run dev               # http://localhost:4000
+npm run dev               # API on http://localhost:4000
+npm run worker            # in a second terminal: runs research jobs
 ```
+
+**LLM provider:** `.env.example` uses `LLM_PROVIDER=openai`, which needs `OPENAI_API_KEY`. For free local
+testing set `LLM_PROVIDER=fake`, which streams a canned answer. The model is set by `OPENAI_MODEL` (default `gpt-5-mini`).
+Cost tracking uses `src/infrastructure/llm/pricing.ts`; verify those prices against OpenAI's pricing page.
 
 Check it works:
 
@@ -62,6 +67,7 @@ Access tokens (15 min) go in `Authorization: Bearer <token>`. The refresh token 
 src/
 ├── app.ts                 # builds the Express app (createApp) — used by server and tests
 ├── server.ts              # starts HTTP, graceful shutdown
+├── worker.ts              # research worker: pg-boss consumer + agent runtime
 ├── config/env.ts          # all env vars, validated with zod at startup
 ├── middleware/            # request-id, request-logger, authenticate, require-permission,
 │                          # validate, rate-limit, not-found, error-handler
@@ -74,8 +80,9 @@ src/
 │   └── research/ agent/ tools/ policies/ retrieval/ evaluation/ observability/ reports/
 ├── infrastructure/
 │   ├── database/          # drizzle client, schema/, migrations/
-│   ├── llm/               # OpenAI wrapper (Phase 4)
-│   └── queue/             # pg-boss (Phase 4)
+│   ├── llm/               # LLM interface, OpenAI + fake providers, pricing
+│   ├── queue/             # pg-boss job queue
+│   └── events/            # run events over Postgres LISTEN/NOTIFY
 ├── shared/                # errors, logger
 ├── types/                 # type augmentations
 ├── utils/
