@@ -5,4 +5,5 @@ coverage/
 .env.*.local
 *.log
 .DS_Store
-storage/
+# Uploaded files (local development). Anchored with "/" so src/infrastructure/storage/ is kept.
+/storage/
