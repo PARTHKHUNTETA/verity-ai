@@ -8,9 +8,10 @@ import { terminalRunStatuses } from "../../infrastructure/database/schema/index.
 import type { RunEventPublisher } from "../../infrastructure/events/run-events.js";
 import type { ResearchJobQueue } from "../../infrastructure/queue/queue.js";
 import { ConflictError, ForbiddenError, NotFoundError } from "../../shared/errors.js";
-import { PROMPT_VERSION } from "../agent/prompts/answer-v0.js";
+import { PROMPT_VERSION } from "../agent/prompts/answer-v1.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { can } from "../policies/permissions.js";
+import { filterReadable, readableCollectionIds } from "../sources/sources.repository.js";
 import type { CreateTaskInput } from "./research.schema.js";
 import {
   cancelRun,
@@ -19,6 +20,7 @@ import {
   findTask,
   insertRun,
   insertTask,
+  listCitations,
   listRunsForTasks,
   listTasks,
   markRunFailed,
@@ -74,6 +76,8 @@ export type RunDetail = {
   run: ReturnType<typeof toRunDto>;
   task: ReturnType<typeof toTaskDto>;
   report: ReturnType<typeof toReportDto>;
+  /** Passages the model could cite, by number. Available as soon as retrieval finishes. */
+  citations: Awaited<ReturnType<typeof listCitations>>;
 };
 
 export function isTerminal(status: ResearchRun["status"]): boolean {
@@ -91,11 +95,30 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
     }
   }
 
+  /**
+   * The run's configuration snapshot. Which collections were searched is decided (and checked
+   * against the user's access) when the run is created, so the worker never needs to know roles.
+   */
+  async function runConfig(actor: AuthContext, collectionIds?: string[]) {
+    const ids = collectionIds
+      ? await filterReadable(db, actor, collectionIds)
+      : await readableCollectionIds(db, actor);
+    return { collectionIds: ids, topK: 8 };
+  }
+
   async function getRunDetail(actor: AuthContext, runId: string): Promise<RunDetail> {
     const row = await findRun(db, actor.organizationId, runId);
     if (!row) throw new NotFoundError("Run not found");
-    const report = await findLatestReport(db, actor.organizationId, runId);
-    return { run: toRunDto(row.run), task: toTaskDto(row.task), report: toReportDto(report) };
+    const [report, citations] = await Promise.all([
+      findLatestReport(db, actor.organizationId, runId),
+      listCitations(db, actor.organizationId, runId),
+    ]);
+    return {
+      run: toRunDto(row.run),
+      task: toTaskDto(row.task),
+      report: toReportDto(report),
+      citations,
+    };
   }
 
   return {
@@ -103,6 +126,7 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
 
     /** Creates a task and its first run, then queues the run. */
     async createTask(actor: AuthContext, input: CreateTaskInput) {
+      const config = await runConfig(actor, input.collectionIds);
       const { task, run } = await db.transaction(async (tx) => {
         const task = await insertTask(tx, {
           organizationId: actor.organizationId,
@@ -116,6 +140,7 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
           startedBy: actor.userId,
           model: deps.model,
           promptVersion: PROMPT_VERSION,
+          config,
         });
         return { task, run };
       });
@@ -133,6 +158,7 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
         startedBy: actor.userId,
         model: deps.model,
         promptVersion: PROMPT_VERSION,
+        config: await runConfig(actor),
       });
       await enqueue(run);
       return toRunDto(run);

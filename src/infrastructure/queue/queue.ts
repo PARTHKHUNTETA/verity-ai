@@ -10,15 +10,23 @@ import type { Logger } from "pino";
 export const RESEARCH_RUN_QUEUE = "research.run";
 export type ResearchRunJob = { runId: string };
 
+export const SOURCE_INGEST_QUEUE = "source.ingest";
+export type SourceIngestJob = { sourceId: string };
+
 /** What the API needs from the queue (tests pass a fake). */
 export interface ResearchJobQueue {
   enqueueResearchRun(runId: string): Promise<void>;
 }
 
-export type JobQueue = ResearchJobQueue & {
-  boss: PgBoss;
-  stop(): Promise<void>;
-};
+export interface IngestJobQueue {
+  enqueueSourceIngest(sourceId: string): Promise<void>;
+}
+
+export type JobQueue = ResearchJobQueue &
+  IngestJobQueue & {
+    boss: PgBoss;
+    stop(): Promise<void>;
+  };
 
 export async function createJobQueue(options: {
   connectionString: string;
@@ -37,11 +45,23 @@ export async function createJobQueue(options: {
     // If a worker dies mid-job, pg-boss gives up on the job after this long.
     expireInSeconds: 15 * 60,
   });
+  await ensureQueue(boss, SOURCE_INGEST_QUEUE, {
+    // Ingestion is idempotent (it replaces a source's chunks), so retrying transient
+    // failures like an embedding API timeout is safe.
+    retryLimit: 2,
+    expireInSeconds: 15 * 60,
+  });
 
   return {
     boss,
     async enqueueResearchRun(runId) {
       await boss.send(RESEARCH_RUN_QUEUE, { runId } satisfies ResearchRunJob);
+    },
+    async enqueueSourceIngest(sourceId) {
+      await boss.send(SOURCE_INGEST_QUEUE, { sourceId } satisfies SourceIngestJob, {
+        retryDelay: 10,
+        retryBackoff: true,
+      });
     },
     stop: () => boss.stop({ graceful: true, timeout: 30_000 }),
   };

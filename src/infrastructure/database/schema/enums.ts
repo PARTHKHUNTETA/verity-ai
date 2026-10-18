@@ -50,3 +50,15 @@ export const stepType = pgEnum("step_type", stepTypes);
 export const reportStatuses = ["draft", "final", "superseded"] as const;
 export type ReportStatus = (typeof reportStatuses)[number];
 export const reportStatus = pgEnum("report_status", reportStatuses);
+
+export const collectionVisibilities = ["private", "organization"] as const;
+export type CollectionVisibility = (typeof collectionVisibilities)[number];
+export const collectionVisibility = pgEnum("collection_visibility", collectionVisibilities);
+
+export const sourceTypes = ["upload", "web", "paper"] as const;
+export type SourceType = (typeof sourceTypes)[number];
+export const sourceType = pgEnum("source_type", sourceTypes);
+
+export const sourceStatuses = ["pending", "processing", "ready", "failed"] as const;
+export type SourceStatus = (typeof sourceStatuses)[number];
+export const sourceStatus = pgEnum("source_status", sourceStatuses);

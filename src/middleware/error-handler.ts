@@ -1,4 +1,5 @@
 import type { ErrorRequestHandler } from "express";
+import { MulterError } from "multer";
 import { ZodError } from "zod";
 import { AppError } from "../shared/errors.js";
 import { logger } from "../shared/logger.js";
@@ -24,6 +25,19 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
         code: "VALIDATION_ERROR",
         message: "Request validation failed",
         details: err.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+        requestId,
+      },
+    });
+    return;
+  }
+
+  // Upload limits (multer): file too large, too many files, unexpected field.
+  if (err instanceof MulterError) {
+    const tooLarge = err.code === "LIMIT_FILE_SIZE";
+    res.status(tooLarge ? 413 : 400).json({
+      error: {
+        code: tooLarge ? "FILE_TOO_LARGE" : "UPLOAD_ERROR",
+        message: tooLarge ? "The file is too large" : err.message,
         requestId,
       },
     });

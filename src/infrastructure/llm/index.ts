@@ -12,6 +12,16 @@ export function chatModelFor(env: Pick<Env, "LLM_PROVIDER" | "OPENAI_MODEL">): s
   return env.LLM_PROVIDER === "fake" ? "fake-model" : env.OPENAI_MODEL;
 }
 
+/**
+ * Embedding model recorded on every chunk. Fake and real vectors must never be mixed in one
+ * index (they aren't comparable), so the fake provider records its own name.
+ */
+export function embeddingModelFor(
+  env: Pick<Env, "LLM_PROVIDER" | "OPENAI_EMBEDDING_MODEL">,
+): string {
+  return env.LLM_PROVIDER === "fake" ? "fake-embedding" : env.OPENAI_EMBEDDING_MODEL;
+}
+
 export function createLlmClient(env: Pick<Env, "LLM_PROVIDER" | "OPENAI_API_KEY">): LlmClient {
   if (env.LLM_PROVIDER === "fake") return createFakeLlmClient();
   if (!env.OPENAI_API_KEY) {

@@ -7,7 +7,7 @@ import { isTerminal, type ResearchService } from "./research.service.js";
  * GET /research/runs/:runId/stream — Server-Sent Events.
  *
  * Protocol (each message is `event: <name>\ndata: <json>\n\n`):
- *   snapshot  full run detail from the DB (sent first, and again when the run finishes)
+ *   snapshot  full run detail from the DB (sent first, after each status change, and at the end)
  *   status    { status, stage } changed
  *   delta     { offset, text }: append `text` at position `offset` of the answer
  *   done      the run is finished; the server closes the stream
@@ -38,6 +38,11 @@ export function createRunStreamHandler(
     let buffering = true;
     const buffered: RunEvent[] = [];
 
+    const sendSnapshot = async () => {
+      const snapshot = await service.getRunDetail(auth, runId);
+      if (!closed) send(res, "snapshot", snapshot);
+    };
+
     const finish = async () => {
       if (closed) return;
       send(res, "snapshot", await service.getRunDetail(auth, runId));
@@ -57,6 +62,8 @@ export function createRunStreamHandler(
       } else {
         send(res, "status", { status: event.status, stage: event.stage });
         if (isTerminal(event.status)) void finish().catch(() => cleanup());
+        // Stage changes come with new data (e.g. the citable passages after retrieval).
+        else void sendSnapshot().catch(() => cleanup());
       }
     };
 

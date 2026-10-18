@@ -29,6 +29,13 @@
       "when": 1792304865594,
       "tag": "0003_research_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792308355451,
+      "tag": "0004_knowledge_base",
+      "breakpoints": true
     }
   ]
 }

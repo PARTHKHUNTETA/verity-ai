@@ -1,9 +1,12 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { DbExecutor } from "../../infrastructure/database/client.js";
 import {
+  evidence,
   reports,
   researchRuns,
   researchTasks,
+  sourceChunks,
+  sources,
   type ResearchRun,
   type ResearchTask,
 } from "../../infrastructure/database/schema/index.js";
@@ -26,6 +29,7 @@ export async function insertRun(
     startedBy: string;
     model: string;
     promptVersion: string;
+    config: Record<string, unknown>;
   },
 ): Promise<ResearchRun> {
   const [run] = await db.insert(researchRuns).values(values).returning();
@@ -106,4 +110,24 @@ export async function markRunFailed(db: DbExecutor, runId: string, code: string,
     .update(researchRuns)
     .set({ status: "failed", errorCode: code, errorMessage: message, completedAt: new Date() })
     .where(eq(researchRuns.id, runId));
+}
+
+/** The passages a run showed the model, with their source, ordered by citation number. */
+export async function listCitations(db: DbExecutor, organizationId: string, runId: string) {
+  return db
+    .select({
+      number: evidence.rank,
+      evidenceId: evidence.id,
+      chunkId: evidence.chunkId,
+      sourceId: evidence.sourceId,
+      sourceTitle: sources.title,
+      quote: evidence.quote,
+      pageStart: sourceChunks.pageStart,
+      pageEnd: sourceChunks.pageEnd,
+    })
+    .from(evidence)
+    .innerJoin(sources, eq(sources.id, evidence.sourceId))
+    .leftJoin(sourceChunks, eq(sourceChunks.id, evidence.chunkId))
+    .where(and(eq(evidence.runId, runId), eq(evidence.organizationId, organizationId)))
+    .orderBy(asc(evidence.rank));
 }

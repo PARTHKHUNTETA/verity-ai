@@ -17,6 +17,7 @@ const PRICES: Record<string, Price> = {
   "text-embedding-3-small": { input: 0.02, output: 0 },
   "text-embedding-3-large": { input: 0.13, output: 0 },
   "fake-model": { input: 0, output: 0 },
+  "fake-embedding": { input: 0, output: 0 },
 };
 
 /**

@@ -29,6 +29,11 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
 
+  // --- Knowledge base (Phase 5) ---
+  /** Where uploaded files are kept (local disk for now; object storage later). */
+  STORAGE_DIR: z.string().min(1).default("storage"),
+  MAX_UPLOAD_MB: z.coerce.number().int().positive().max(100).default(25),
+
   // --- LLM (Phase 4) ---
   /** "fake" streams a canned answer: no API key or cost, used for tests and local development. */
   LLM_PROVIDER: z.enum(["openai", "fake"]).default("openai"),

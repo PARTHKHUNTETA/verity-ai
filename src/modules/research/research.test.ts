@@ -35,7 +35,7 @@ describe("POST /research/tasks", () => {
     expect(res.body.run).toMatchObject({
       status: "queued",
       model: "fake-model",
-      promptVersion: "answer-v0",
+      promptVersion: "answer-v1",
     });
     expect(fakeQueue.enqueued).toEqual([res.body.run.id]);
   });
@@ -210,7 +210,12 @@ describe("GET /research/runs/:id/stream (SSE)", () => {
       .trim()
       .split("\n\n")
       .map((block) => block.split("\n")[0]!.replace("event: ", ""));
-    expect(events).toEqual(["snapshot", "status", "delta", "delta", "status", "snapshot", "done"]);
+    // A snapshot comes first, after each status change, and at the end, followed by done.
+    // (The mid-run snapshot is async, so its exact position among the deltas may vary.)
+    expect(events[0]).toBe("snapshot");
+    expect(events.slice(-2)).toEqual(["snapshot", "done"]);
+    expect(events.filter((e) => e === "delta")).toHaveLength(2);
+    expect(events.filter((e) => e === "status")).toHaveLength(2);
     expect(res.body).toContain('"text":"Hello "');
   });
 

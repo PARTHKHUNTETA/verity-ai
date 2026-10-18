@@ -75,13 +75,16 @@ src/
 │   ├── health/            # GET /api/v1/health (Phase 1)
 │   ├── auth/              # register, login, refresh rotation, logout, /me (Phase 2)
 │   ├── organizations/     # current org + member management (Phase 2)
+│   ├── sources/           # collections, uploads, documents, search API (Phase 5)
+│   ├── retrieval/         # parsing, chunking, ingestion, hybrid search (Phase 5)
 │   ├── audit/             # append-only audit log writer (Phase 2)
 │   ├── policies/          # permissions.ts: RBAC matrix (Phase 2); policy gateway (Phase 8)
 │   └── research/ agent/ tools/ policies/ retrieval/ evaluation/ observability/ reports/
 ├── infrastructure/
 │   ├── database/          # drizzle client, schema/, migrations/
 │   ├── llm/               # LLM interface, OpenAI + fake providers, pricing
-│   ├── queue/             # pg-boss job queue
+│   ├── queue/             # pg-boss job queue (research.run, source.ingest)
+│   ├── storage/           # file storage (local disk)
 │   └── events/            # run events over Postgres LISTEN/NOTIFY
 ├── shared/                # errors, logger
 ├── types/                 # type augmentations
