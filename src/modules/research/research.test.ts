@@ -35,7 +35,7 @@ describe("POST /research/tasks", () => {
     expect(res.body.run).toMatchObject({
       status: "queued",
       model: "fake-model",
-      promptVersion: "answer-v1",
+      promptVersion: "answer-v2",
     });
     expect(fakeQueue.enqueued).toEqual([res.body.run.id]);
   });

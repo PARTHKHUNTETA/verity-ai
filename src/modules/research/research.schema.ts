@@ -5,6 +5,8 @@ export const createTaskSchema = z.object({
   instructions: z.string().trim().max(2000).optional(),
   /** Collections to search. Defaults to every collection the user can read. */
   collectionIds: z.array(z.uuid()).max(50).optional(),
+  /** Also search the web and academic databases for new sources (default true). */
+  discover: z.boolean().default(true),
 });
 
 export const taskParamsSchema = z.object({ taskId: z.uuid() });

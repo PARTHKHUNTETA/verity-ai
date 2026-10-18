@@ -34,6 +34,30 @@ const envSchema = z.object({
   STORAGE_DIR: z.string().min(1).default("storage"),
   MAX_UPLOAD_MB: z.coerce.number().int().positive().max(100).default(25),
 
+  // --- Discovery: web & academic search, fetching (Phase 6) ---
+  /** "none" disables web search (academic search still works without any key). */
+  WEB_SEARCH_PROVIDER: z.enum(["none", "tavily"]).default("none"),
+  TAVILY_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  /** Comma-separated: arxiv, semantic_scholar (the latter works best with an API key). */
+  ACADEMIC_SEARCH: z
+    .string()
+    .default("arxiv")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.enum(["arxiv", "semantic_scholar"]))),
+  SEMANTIC_SCHOLAR_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  /** Domains the agent must never fetch (comma-separated; subdomains included). */
+  BLOCKED_DOMAINS: z.string().default(""),
+  /** If set, the agent may only fetch these domains (comma-separated). */
+  ALLOWED_DOMAINS: z.string().default(""),
+  FETCH_MAX_MB: z.coerce.number().positive().max(50).default(10),
+  FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  MAX_SOURCES_PER_RUN: z.coerce.number().int().min(1).max(20).default(5),
+
   // --- LLM (Phase 4) ---
   /** "fake" streams a canned answer: no API key or cost, used for tests and local development. */
   LLM_PROVIDER: z.enum(["openai", "fake"]).default("openai"),

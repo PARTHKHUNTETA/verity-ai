@@ -46,7 +46,12 @@ export const testKnowledgeDeps = {
 /** In-process event bus; `testEvents.published` lists every event. */
 export const testEvents = createInMemoryRunEventBus();
 
-export const testResearchDeps = { queue: fakeQueue, events: testEvents, model: "fake-model" };
+export const testResearchDeps = {
+  queue: fakeQueue,
+  events: testEvents,
+  model: "fake-model",
+  capabilities: { webSearch: null, academicSearch: ["arxiv"] },
+};
 
 export const app = createApp({
   db,
@@ -58,7 +63,7 @@ export const app = createApp({
 /** Empties every app table between tests (keeps the schema and migration history). */
 export async function resetDatabase(): Promise<void> {
   await db.execute(
-    sql`truncate table claim_evidence, claims, evidence, source_chunks, collection_sources, sources, collections, reports, agent_steps, research_runs, research_tasks, audit_logs, refresh_tokens, organization_members, users, organizations restart identity cascade`,
+    sql`truncate table run_sources, claim_evidence, claims, evidence, source_chunks, collection_sources, sources, collections, reports, agent_steps, research_runs, research_tasks, audit_logs, refresh_tokens, organization_members, users, organizations restart identity cascade`,
   );
   fakeQueue.enqueued.length = 0;
   fakeQueue.ingests.length = 0;

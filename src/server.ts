@@ -5,6 +5,7 @@ import { createPgRunEventBus } from "./infrastructure/events/run-events.js";
 import { chatModelFor, createLlmClient, embeddingModelFor } from "./infrastructure/llm/index.js";
 import { createJobQueue } from "./infrastructure/queue/queue.js";
 import { createLocalFileStorage } from "./infrastructure/storage/file-storage.js";
+import { capabilitiesOf, discoveryProvidersFrom } from "./modules/tools/discovery.js";
 import { logger } from "./shared/logger.js";
 
 const queue = await createJobQueue({ connectionString: env.DATABASE_URL, logger, role: "api" });
@@ -14,7 +15,12 @@ await events.start();
 const app = createApp({
   db,
   pingDatabase,
-  research: { queue, events, model: chatModelFor(env) },
+  research: {
+    queue,
+    events,
+    model: chatModelFor(env),
+    capabilities: capabilitiesOf(discoveryProvidersFrom(env)),
+  },
   knowledge: {
     storage: createLocalFileStorage(env.STORAGE_DIR),
     queue,

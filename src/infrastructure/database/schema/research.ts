@@ -12,7 +12,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { createdAt, id, updatedAt } from "./columns.js";
-import { reportStatus, runStage, runStatus, stepType } from "./enums.js";
+import { reportStatus, runSourceStatus, runStage, runStatus, stepType } from "./enums.js";
 import { organizations, users } from "./identity.js";
 import { sourceChunks, sources } from "./knowledge.js";
 
@@ -118,6 +118,35 @@ export const reports = pgTable(
 );
 
 /**
+ * Every source a run discovered (web or academic search) and what happened to it:
+ * candidate → acquired (fetched + indexed) → used (cited), or rejected / blocked with a reason.
+ * `source_id` is set once the document has been acquired.
+ */
+export const runSources = pgTable(
+  "run_sources",
+  {
+    id: id(),
+    organizationId: organizationId(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => researchRuns.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id").references(() => sources.id, { onDelete: "set null" }),
+    url: text("url").notNull(),
+    title: text("title"),
+    snippet: text("snippet"),
+    provider: text("provider").notNull(),
+    discoveredVia: text("discovered_via").notNull(),
+    query: text("query"),
+    rank: integer("rank").notNull(),
+    status: runSourceStatus("status").notNull().default("candidate"),
+    reason: text("reason"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [unique("run_sources_run_url_unique").on(t.runId, t.url)],
+);
+
+/**
  * A passage the agent used as evidence. Phase 5: each retrieved passage shown to the model is
  * one evidence row, numbered by `rank` (the model cites it as [rank]). Phase 7 adds extracted
  * quotes, stance and confidence per sub-question.
@@ -182,4 +211,5 @@ export type AgentStep = typeof agentSteps.$inferSelect;
 export type NewAgentStep = typeof agentSteps.$inferInsert;
 export type Report = typeof reports.$inferSelect;
 export type Evidence = typeof evidence.$inferSelect;
+export type RunSource = typeof runSources.$inferSelect;
 export type Claim = typeof claims.$inferSelect;

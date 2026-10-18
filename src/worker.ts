@@ -10,7 +10,11 @@ import {
   type SourceIngestJob,
 } from "./infrastructure/queue/queue.js";
 import { createLocalFileStorage } from "./infrastructure/storage/file-storage.js";
+import { createSafeFetcher } from "./infrastructure/http/safe-fetch.js";
 import { createAgentRuntime } from "./modules/agent/agent-runtime.js";
+import { createAcquisitionService } from "./modules/retrieval/acquisition.js";
+import { parseDomainList } from "./modules/retrieval/urls.js";
+import { discoveryProvidersFrom } from "./modules/tools/discovery.js";
 import { createIngestionService } from "./modules/retrieval/ingestion.js";
 import { createSearchService } from "./modules/retrieval/search.js";
 import { logger } from "./shared/logger.js";
@@ -25,14 +29,31 @@ const CONCURRENCY = 4;
 const llm = createLlmClient(env);
 const embeddingModel = embeddingModelFor(env);
 const events = createPgRunEventBus({ pool, connectionString: env.DATABASE_URL, logger });
+const storage = createLocalFileStorage(env.STORAGE_DIR);
 const search = createSearchService(db, llm, embeddingModel);
-const runtime = createAgentRuntime({ db, llm, search, events, logger });
-const ingestion = createIngestionService({
+const ingestion = createIngestionService({ db, llm, storage, embeddingModel, logger });
+const providers = discoveryProvidersFrom(env);
+const acquisition = createAcquisitionService({
+  db,
+  fetcher: createSafeFetcher({
+    maxBytes: env.FETCH_MAX_MB * 1024 * 1024,
+    timeoutMs: env.FETCH_TIMEOUT_MS,
+  }),
+  storage,
+  ingestion,
+  domainPolicy: {
+    blocked: parseDomainList(env.BLOCKED_DOMAINS),
+    allowed: parseDomainList(env.ALLOWED_DOMAINS),
+  },
+  logger,
+});
+const runtime = createAgentRuntime({
   db,
   llm,
-  storage: createLocalFileStorage(env.STORAGE_DIR),
-  embeddingModel,
+  search,
+  events,
   logger,
+  discovery: { providers, acquisition, maxSources: env.MAX_SOURCES_PER_RUN },
 });
 
 /** Runs being executed by this worker, so a cancel event can abort the right one. */
@@ -70,7 +91,7 @@ await queue.boss.work<SourceIngestJob>(
 );
 
 logger.info(
-  `VerityAI worker started (LLM: ${llm.provider}, queues: ${RESEARCH_RUN_QUEUE} ×${CONCURRENCY}, ${SOURCE_INGEST_QUEUE} ×2)`,
+  `VerityAI worker started (LLM: ${llm.provider}, web search: ${providers.web?.name ?? "off"}, academic: ${providers.academic.map((p) => p.name).join(", ") || "off"}, queues: ${RESEARCH_RUN_QUEUE} ×${CONCURRENCY}, ${SOURCE_INGEST_QUEUE} ×2)`,
 );
 
 async function shutdown(signal: string) {

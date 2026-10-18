@@ -5,6 +5,7 @@ import {
   reports,
   researchRuns,
   researchTasks,
+  runSources,
   sourceChunks,
   sources,
   type ResearchRun,
@@ -130,4 +131,22 @@ export async function listCitations(db: DbExecutor, organizationId: string, runI
     .leftJoin(sourceChunks, eq(sourceChunks.id, evidence.chunkId))
     .where(and(eq(evidence.runId, runId), eq(evidence.organizationId, organizationId)))
     .orderBy(asc(evidence.rank));
+}
+
+export async function listRunSources(db: DbExecutor, organizationId: string, runId: string) {
+  return db
+    .select({
+      id: runSources.id,
+      url: runSources.url,
+      title: runSources.title,
+      provider: runSources.provider,
+      discoveredVia: runSources.discoveredVia,
+      rank: runSources.rank,
+      status: runSources.status,
+      reason: runSources.reason,
+      sourceId: runSources.sourceId,
+    })
+    .from(runSources)
+    .where(and(eq(runSources.runId, runId), eq(runSources.organizationId, organizationId)))
+    .orderBy(asc(runSources.rank));
 }

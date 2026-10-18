@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { buildPdf } from "../../tests/pdf.js";
-import { detectMimeType, parseDocument, UnsupportedDocumentError } from "./parsers.js";
+import {
+  detectMimeType,
+  parseDocument,
+  sanitizeText,
+  UnsupportedDocumentError,
+} from "./parsers.js";
 
 const text = (s: string) => new TextEncoder().encode(s);
 
@@ -37,5 +42,17 @@ describe("parseDocument", () => {
   it("uses the first heading as the title of a Markdown file", async () => {
     const doc = await parseDocument(text("# Retrieval Notes\n\nSome text."), "text/markdown");
     expect(doc).toMatchObject({ hasPages: false, title: "Retrieval Notes" });
+  });
+});
+
+describe("sanitizeText", () => {
+  it("removes NUL and control characters Postgres can't store, keeping newlines and tabs", () => {
+    // Real arXiv PDFs can contain NUL bytes in extracted text (found during Phase 6 testing).
+    expect(sanitizeText("Yousuf1\u0000[0009]\u0007 ok\n\tnext")).toBe("Yousuf1[0009] ok\n\tnext");
+  });
+
+  it("is applied to every parsed document", async () => {
+    const doc = await parseDocument(text("before\u0000after"), "text/plain");
+    expect(doc.pages[0]).toBe("beforeafter");
   });
 });

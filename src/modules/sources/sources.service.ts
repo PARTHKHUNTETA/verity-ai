@@ -33,6 +33,8 @@ export function toSourceDto(source: Source) {
     sizeBytes: source.sizeBytes,
     authors: source.authors,
     url: source.url,
+    domain: source.domain,
+    publishedAt: source.publishedAt,
     status: source.status,
     error: source.error,
     pageCount: source.pageCount,
@@ -184,13 +186,18 @@ export function createSourcesService(db: Database, deps: SourcesDeps) {
       if (!removed) throw new NotFoundError("Document not found in this collection");
     },
 
-    /** A source is visible if it's in at least one collection the actor can read. */
+    /**
+     * An uploaded document is visible if it's in at least one collection the actor can read.
+     * Web pages and papers the agent fetched are public content, visible to the whole org.
+     */
     async getSource(actor: AuthContext, sourceId: string) {
       const source = await repo.findSource(db, actor.organizationId, sourceId);
       const inCollections = source
         ? await repo.readableCollectionsForSource(db, actor, sourceId)
         : [];
-      if (!source || inCollections.length === 0) throw new NotFoundError("Source not found");
+      if (!source || (source.type === "upload" && inCollections.length === 0)) {
+        throw new NotFoundError("Source not found");
+      }
       return {
         ...toSourceDto(source),
         collections: inCollections,

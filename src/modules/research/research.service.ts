@@ -8,7 +8,7 @@ import { terminalRunStatuses } from "../../infrastructure/database/schema/index.
 import type { RunEventPublisher } from "../../infrastructure/events/run-events.js";
 import type { ResearchJobQueue } from "../../infrastructure/queue/queue.js";
 import { ConflictError, ForbiddenError, NotFoundError } from "../../shared/errors.js";
-import { PROMPT_VERSION } from "../agent/prompts/answer-v1.js";
+import { PROMPT_VERSION } from "../agent/prompts/answer.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { can } from "../policies/permissions.js";
 import { filterReadable, readableCollectionIds } from "../sources/sources.repository.js";
@@ -21,6 +21,7 @@ import {
   insertRun,
   insertTask,
   listCitations,
+  listRunSources,
   listRunsForTasks,
   listTasks,
   markRunFailed,
@@ -31,6 +32,8 @@ export type ResearchDeps = {
   events: RunEventPublisher;
   /** Model recorded on new runs (the worker records the exact version it used). */
   model: string;
+  /** Which discovery providers the worker has (shown in the UI). */
+  capabilities: { webSearch: string | null; academicSearch: string[] };
 };
 
 /** API shapes: only what the frontend needs, with derived fields like durationMs. */
@@ -78,7 +81,15 @@ export type RunDetail = {
   report: ReturnType<typeof toReportDto>;
   /** Passages the model could cite, by number. Available as soon as retrieval finishes. */
   citations: Awaited<ReturnType<typeof listCitations>>;
+  /** Sources found by web/academic search and what happened to each. */
+  discovered: Awaited<ReturnType<typeof listRunSources>>;
 };
+
+/** A re-run keeps the discovery setting of the task's latest run. */
+function previousDiscovery(runs: ResearchRun[]): boolean {
+  const config = runs[0]?.config as { discovery?: { enabled?: boolean } } | undefined;
+  return config?.discovery?.enabled ?? true;
+}
 
 export function isTerminal(status: ResearchRun["status"]): boolean {
   return terminalRunStatuses.includes(status);
@@ -99,25 +110,27 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
    * The run's configuration snapshot. Which collections were searched is decided (and checked
    * against the user's access) when the run is created, so the worker never needs to know roles.
    */
-  async function runConfig(actor: AuthContext, collectionIds?: string[]) {
+  async function runConfig(actor: AuthContext, collectionIds?: string[], discover = true) {
     const ids = collectionIds
       ? await filterReadable(db, actor, collectionIds)
       : await readableCollectionIds(db, actor);
-    return { collectionIds: ids, topK: 8 };
+    return { collectionIds: ids, topK: 8, discovery: { enabled: discover } };
   }
 
   async function getRunDetail(actor: AuthContext, runId: string): Promise<RunDetail> {
     const row = await findRun(db, actor.organizationId, runId);
     if (!row) throw new NotFoundError("Run not found");
-    const [report, citations] = await Promise.all([
+    const [report, citations, discovered] = await Promise.all([
       findLatestReport(db, actor.organizationId, runId),
       listCitations(db, actor.organizationId, runId),
+      listRunSources(db, actor.organizationId, runId),
     ]);
     return {
       run: toRunDto(row.run),
       task: toTaskDto(row.task),
       report: toReportDto(report),
       citations,
+      discovered,
     };
   }
 
@@ -125,8 +138,10 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
     getRunDetail,
 
     /** Creates a task and its first run, then queues the run. */
+    capabilities: () => deps.capabilities,
+
     async createTask(actor: AuthContext, input: CreateTaskInput) {
-      const config = await runConfig(actor, input.collectionIds);
+      const config = await runConfig(actor, input.collectionIds, input.discover);
       const { task, run } = await db.transaction(async (tx) => {
         const task = await insertTask(tx, {
           organizationId: actor.organizationId,
@@ -152,13 +167,14 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
     async startRun(actor: AuthContext, taskId: string) {
       const task = await findTask(db, actor.organizationId, taskId);
       if (!task) throw new NotFoundError("Task not found");
+      const runs = await listRunsForTasks(db, actor.organizationId, [taskId]);
       const run = await insertRun(db, {
         organizationId: actor.organizationId,
         taskId,
         startedBy: actor.userId,
         model: deps.model,
         promptVersion: PROMPT_VERSION,
-        config: await runConfig(actor),
+        config: await runConfig(actor, undefined, previousDiscovery(runs)),
       });
       await enqueue(run);
       return toRunDto(run);

@@ -5,7 +5,7 @@ import { sourceChunks, sources } from "../../infrastructure/database/schema/inde
 import type { LlmClient } from "../../infrastructure/llm/index.js";
 import type { FileStorage } from "../../infrastructure/storage/file-storage.js";
 import { chunkPages } from "./chunker.js";
-import { parseDocument, type SupportedMimeType } from "./parsers.js";
+import { parseDocument, type ParsedDocument, type SupportedMimeType } from "./parsers.js";
 import { estimateTokens } from "./tokens.js";
 
 /**
@@ -43,7 +43,66 @@ export function createIngestionService({
       .where(eq(sources.id, sourceId));
   }
 
+  /** Chunks, embeds and stores an already-parsed document; marks the source ready. */
+  async function ingestParsed(sourceId: string, parsed: ParsedDocument): Promise<number> {
+    const [source] = await db.select().from(sources).where(eq(sources.id, sourceId));
+    if (!source) throw new IngestionError("Source not found");
+    await db
+      .update(sources)
+      .set({ status: "processing", error: null })
+      .where(eq(sources.id, sourceId));
+
+    const chunks = chunkPages(parsed.pages, {}, parsed.hasPages);
+    if (chunks.length === 0) {
+      throw new IngestionError(
+        parsed.hasPages
+          ? "No text found in this PDF. Scanned documents need OCR, which isn't supported yet."
+          : "The document has no text.",
+      );
+    }
+
+    const embeddings: number[][] = [];
+    for (let i = 0; i < chunks.length; i += EMBED_BATCH_SIZE) {
+      const batch = chunks.slice(i, i + EMBED_BATCH_SIZE).map((c) => c.content);
+      const result = await llm.embed(batch, embeddingModel);
+      embeddings.push(...result.embeddings);
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.delete(sourceChunks).where(eq(sourceChunks.sourceId, sourceId));
+      await tx.insert(sourceChunks).values(
+        chunks.map((chunk, i) => ({
+          organizationId: source.organizationId,
+          sourceId,
+          chunkIndex: i,
+          content: chunk.content,
+          tokenCount: chunk.tokenCount,
+          pageStart: chunk.pageStart,
+          pageEnd: chunk.pageEnd,
+          embedding: embeddings[i],
+          embeddingModel,
+        })),
+      );
+      await tx
+        .update(sources)
+        .set({
+          status: "ready",
+          error: null,
+          pageCount: parsed.hasPages ? parsed.pages.length : null,
+          tokenCount: chunks.reduce((sum, c) => sum + estimateTokens(c.content), 0),
+          // Prefer the document's own title/authors when an upload had only a file name.
+          title: parsed.title && source.title === source.fileName ? parsed.title : source.title,
+          authors: source.authors ?? parsed.authors ?? null,
+        })
+        .where(eq(sources.id, sourceId));
+    });
+    return chunks.length;
+  }
+
   return {
+    ingestParsed,
+
+    /** The `source.ingest` job for uploads: load the stored file, parse it, then ingest. */
     async ingestSource(sourceId: string): Promise<void> {
       const [source] = await db.select().from(sources).where(eq(sources.id, sourceId));
       if (!source || source.deletedAt) return;
@@ -52,64 +111,12 @@ export function createIngestionService({
         return;
       }
 
-      await db
-        .update(sources)
-        .set({ status: "processing", error: null })
-        .where(eq(sources.id, sourceId));
       const started = Date.now();
-
       try {
         const bytes = await storage.get(source.storageKey);
         const parsed = await parseDocument(bytes, source.mimeType as SupportedMimeType);
-        const chunks = chunkPages(parsed.pages, {}, parsed.hasPages);
-        if (chunks.length === 0) {
-          throw new IngestionError(
-            parsed.hasPages
-              ? "No text found in this PDF. Scanned documents need OCR, which isn't supported yet."
-              : "The file is empty.",
-          );
-        }
-
-        const embeddings: number[][] = [];
-        for (let i = 0; i < chunks.length; i += EMBED_BATCH_SIZE) {
-          const batch = chunks.slice(i, i + EMBED_BATCH_SIZE).map((c) => c.content);
-          const result = await llm.embed(batch, embeddingModel);
-          embeddings.push(...result.embeddings);
-        }
-
-        await db.transaction(async (tx) => {
-          await tx.delete(sourceChunks).where(eq(sourceChunks.sourceId, sourceId));
-          await tx.insert(sourceChunks).values(
-            chunks.map((chunk, i) => ({
-              organizationId: source.organizationId,
-              sourceId,
-              chunkIndex: i,
-              content: chunk.content,
-              tokenCount: chunk.tokenCount,
-              pageStart: chunk.pageStart,
-              pageEnd: chunk.pageEnd,
-              embedding: embeddings[i],
-              embeddingModel,
-            })),
-          );
-          await tx
-            .update(sources)
-            .set({
-              status: "ready",
-              error: null,
-              pageCount: parsed.hasPages ? parsed.pages.length : null,
-              tokenCount: chunks.reduce((sum, c) => sum + estimateTokens(c.content), 0),
-              // Prefer the document's own title/authors when the upload had only a file name.
-              title: parsed.title && source.title === source.fileName ? parsed.title : source.title,
-              authors: source.authors ?? parsed.authors ?? null,
-            })
-            .where(eq(sources.id, sourceId));
-        });
-
-        logger.info(
-          { sourceId, chunks: chunks.length, ms: Date.now() - started },
-          "Source ingested",
-        );
+        const chunkCount = await ingestParsed(sourceId, parsed);
+        logger.info({ sourceId, chunks: chunkCount, ms: Date.now() - started }, "Source ingested");
       } catch (err) {
         if (err instanceof IngestionError) {
           await fail(sourceId, err.message);
@@ -120,6 +127,8 @@ export function createIngestionService({
         throw err; // let pg-boss retry transient failures
       }
     },
+
+    fail,
   };
 }
 

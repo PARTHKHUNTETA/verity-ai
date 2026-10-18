@@ -25,6 +25,10 @@ npm run worker            # in a second terminal: runs research jobs
 testing set `LLM_PROVIDER=fake`, which streams a canned answer. The model is set by `OPENAI_MODEL` (default `gpt-5-mini`).
 Cost tracking uses `src/infrastructure/llm/pricing.ts`; verify those prices against OpenAI's pricing page.
 
+**Discovery:** runs search arXiv by default (no key needed). For web search set `WEB_SEARCH_PROVIDER=tavily`
+and `TAVILY_API_KEY`. Fetched URLs go through an SSRF-safe fetcher; block or allow domains with
+`BLOCKED_DOMAINS` / `ALLOWED_DOMAINS`.
+
 Check it works:
 
 ```bash
@@ -76,7 +80,8 @@ src/
 │   ├── auth/              # register, login, refresh rotation, logout, /me (Phase 2)
 │   ├── organizations/     # current org + member management (Phase 2)
 │   ├── sources/           # collections, uploads, documents, search API (Phase 5)
-│   ├── retrieval/         # parsing, chunking, ingestion, hybrid search (Phase 5)
+│   ├── retrieval/         # parsing (PDF/HTML/text), chunking, ingestion, hybrid search, acquisition
+│   ├── tools/             # search providers (Tavily, arXiv, Semantic Scholar) (Phase 6)
 │   ├── audit/             # append-only audit log writer (Phase 2)
 │   ├── policies/          # permissions.ts: RBAC matrix (Phase 2); policy gateway (Phase 8)
 │   └── research/ agent/ tools/ policies/ retrieval/ evaluation/ observability/ reports/
@@ -85,6 +90,7 @@ src/
 │   ├── llm/               # LLM interface, OpenAI + fake providers, pricing
 │   ├── queue/             # pg-boss job queue (research.run, source.ingest)
 │   ├── storage/           # file storage (local disk)
+│   ├── http/              # SSRF guard + safe fetcher for untrusted URLs
 │   └── events/            # run events over Postgres LISTEN/NOTIFY
 ├── shared/                # errors, logger
 ├── types/                 # type augmentations

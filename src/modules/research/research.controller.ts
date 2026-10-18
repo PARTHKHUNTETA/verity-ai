@@ -4,6 +4,10 @@ import type { CreateTaskInput } from "./research.schema.js";
 import type { ResearchService } from "./research.service.js";
 
 export function createResearchController(service: ResearchService) {
+  const capabilities: RequestHandler = (_req, res) => {
+    res.json(service.capabilities());
+  };
+
   const listTasks: RequestHandler = async (req, res) => {
     res.json({ tasks: await service.listTasks(getAuth(req)) });
   };
@@ -28,5 +32,5 @@ export function createResearchController(service: ResearchService) {
     res.json(await service.cancel(getAuth(req), req.params.runId));
   };
 
-  return { listTasks, createTask, getTask, startRun, getRun, cancelRun };
+  return { capabilities, listTasks, createTask, getTask, startRun, getRun, cancelRun };
 }

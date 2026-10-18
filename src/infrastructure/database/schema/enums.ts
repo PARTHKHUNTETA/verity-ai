@@ -62,3 +62,8 @@ export const sourceType = pgEnum("source_type", sourceTypes);
 export const sourceStatuses = ["pending", "processing", "ready", "failed"] as const;
 export type SourceStatus = (typeof sourceStatuses)[number];
 export const sourceStatus = pgEnum("source_status", sourceStatuses);
+
+/** What happened to a candidate source during a run (docs/db-design.md: run_sources). */
+export const runSourceStatuses = ["candidate", "acquired", "used", "rejected", "blocked"] as const;
+export type RunSourceStatus = (typeof runSourceStatuses)[number];
+export const runSourceStatus = pgEnum("run_source_status", runSourceStatuses);

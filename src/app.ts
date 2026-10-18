@@ -28,6 +28,7 @@ export type AppDependencies = {
     events: RunEventBus;
     /** Model name recorded on new runs. */
     model: string;
+    capabilities: { webSearch: string | null; academicSearch: string[] };
   };
   knowledge: {
     storage: FileStorage;

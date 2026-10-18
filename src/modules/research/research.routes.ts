@@ -19,6 +19,7 @@ export function researchRoutes(
 
   router.use(authenticate(db));
 
+  router.get("/capabilities", requirePermission("report:read"), controller.capabilities);
   router.get("/tasks", requirePermission("report:read"), controller.listTasks);
   router.post(
     "/tasks",

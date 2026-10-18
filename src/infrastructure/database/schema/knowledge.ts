@@ -74,6 +74,8 @@ export const sources = pgTable(
     pageCount: integer("page_count"),
     tokenCount: integer("token_count"),
     reliabilityScore: real("reliability_score"),
+    /** When a web/paper source was last downloaded (acts as the fetch cache timestamp). */
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: createdAt(),
@@ -81,6 +83,10 @@ export const sources = pgTable(
   },
   (t) => [
     uniqueIndex("sources_org_content_hash_unique").on(t.organizationId, t.contentHash),
+    // The same web page / paper is stored once per organization.
+    uniqueIndex("sources_org_canonical_url_unique")
+      .on(t.organizationId, t.canonicalUrl)
+      .where(sql`${t.canonicalUrl} is not null`),
     index("sources_org_status_idx").on(t.organizationId, t.status),
   ],
 );
