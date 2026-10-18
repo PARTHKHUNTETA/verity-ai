@@ -213,6 +213,8 @@ export function createEvalRunner({ db, runtime, llm, logger, track }: EvalRunner
         failures: verdict.failures,
         details: {
           matchedSources: recall.matched,
+          // Quality misses on red-team cases (recorded, but not failing the case).
+          warnings: verdict.warnings,
           points,
           pointsJudgePromptVersion: POINTS_JUDGE_PROMPT_VERSION,
           errorCode: run?.errorCode ?? null,

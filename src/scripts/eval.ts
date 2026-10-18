@@ -195,7 +195,12 @@ try {
       category: r.category,
       passed: r.passed ? "✓" : "✕",
       question: r.question.length > 60 ? `${r.question.slice(0, 57)}…` : r.question,
-      why: r.failures.join("; ").slice(0, 80),
+      why: (r.failures.length
+        ? r.failures
+        : ((r.details.warnings as string[] | undefined) ?? []).map((w) => `note: ${w}`)
+      )
+        .join("; ")
+        .slice(0, 80),
     })),
   );
   console.log("\nScorecard");
