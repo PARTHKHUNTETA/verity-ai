@@ -15,6 +15,13 @@
       "when": 1792234320435,
       "tag": "0001_identity_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792236903989,
+      "tag": "0002_auth_and_audit",
+      "breakpoints": true
     }
   ]
 }

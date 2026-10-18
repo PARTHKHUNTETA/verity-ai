@@ -19,8 +19,17 @@ const envSchema = z.object({
       }),
   ),
 
+  // --- Auth (Phase 2) ---
+  JWT_SECRET: z.preprocess(
+    emptyToUndefined,
+    z
+      .string({ error: "JWT_SECRET is required" })
+      .min(32, "JWT_SECRET must be at least 32 characters"),
+  ),
+  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
+
   // Required from later phases; optional until then. Empty strings count as "not set".
-  JWT_SECRET: z.preprocess(emptyToUndefined, z.string().min(32).optional()),
   OPENAI_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
 });
 

@@ -1,15 +1,20 @@
+import cookieParser from "cookie-parser";
 import express, { type Express } from "express";
+import type { Database } from "./infrastructure/database/client.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFound } from "./middleware/not-found.js";
 import { requestId } from "./middleware/request-id.js";
 import { requestLogger } from "./middleware/request-logger.js";
+import { authRoutes } from "./modules/auth/auth.routes.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
+import { organizationRoutes } from "./modules/organizations/organizations.routes.js";
 
 /**
  * External dependencies the app needs. Passing them in (instead of importing them
  * inside modules) lets tests swap in fakes without a real database.
  */
 export type AppDependencies = {
+  db: Database;
   pingDatabase: () => Promise<void>;
 };
 
@@ -23,9 +28,14 @@ export function createApp(deps: AppDependencies): Express {
   app.use(requestId);
   app.use(requestLogger);
   app.use(express.json({ limit: "1mb" }));
+  app.use(cookieParser());
 
   const api = express.Router();
+  const { auth, me } = authRoutes(deps.db);
   api.use("/health", healthRoutes({ pingDatabase: deps.pingDatabase }));
+  api.use("/auth", auth);
+  api.use("/me", me);
+  api.use("/organization", organizationRoutes(deps.db));
   // Later phases mount their module routers here, e.g. api.use("/research", researchRoutes(...)).
   app.use("/api/v1", api);
 

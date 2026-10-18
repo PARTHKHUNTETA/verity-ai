@@ -1,13 +1,13 @@
 import { defineConfig } from "vitest/config";
+import { testEnv } from "./src/tests/test-env.js";
 
 export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     environment: "node",
-    env: {
-      NODE_ENV: "test",
-      LOG_LEVEL: "silent",
-      DATABASE_URL: "postgres://verity:verity@localhost:5433/verity_test",
-    },
+    globalSetup: ["src/tests/global-setup.ts"],
+    // Integration tests share one test database, so files run one at a time.
+    fileParallelism: false,
+    env: testEnv,
   },
 });

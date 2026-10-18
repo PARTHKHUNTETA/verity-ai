@@ -21,6 +21,10 @@ pool.on("error", (err) => logger.error({ error: err.message }, "Idle Postgres cl
 
 export const db = drizzle(pool, { schema, casing: "snake_case" });
 export type Database = typeof db;
+/** A transaction handle (`db.transaction(async (tx) => ...)`). */
+export type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+/** Repositories accept either, so they work inside and outside a transaction. */
+export type DbExecutor = Database | Transaction;
 
 /** Cheap round trip used by the health check. Throws when the database is unreachable. */
 export async function pingDatabase(): Promise<void> {

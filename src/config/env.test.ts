@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseEnv } from "./env.js";
 
-const valid = { DATABASE_URL: "postgres://u:p@localhost:5432/db" };
+const valid = {
+  DATABASE_URL: "postgres://u:p@localhost:5432/db",
+  JWT_SECRET: "x".repeat(32),
+};
 
 describe("parseEnv", () => {
   it("applies defaults", () => {
@@ -17,8 +20,12 @@ describe("parseEnv", () => {
     expect(() => parseEnv({ DATABASE_URL: "mysql://localhost/db" })).toThrow(/postgres/);
   });
 
-  it("treats empty optional secrets as unset, but validates them when present", () => {
-    expect(parseEnv({ ...valid, JWT_SECRET: "" }).JWT_SECRET).toBeUndefined();
-    expect(() => parseEnv({ ...valid, JWT_SECRET: "too-short" })).toThrow(/JWT_SECRET/);
+  it("requires a JWT_SECRET of at least 32 characters", () => {
+    expect(() => parseEnv({ ...valid, JWT_SECRET: "" })).toThrow(/JWT_SECRET is required/);
+    expect(() => parseEnv({ ...valid, JWT_SECRET: "too-short" })).toThrow(/at least 32/);
+  });
+
+  it("treats empty optional secrets as unset", () => {
+    expect(parseEnv({ ...valid, OPENAI_API_KEY: "" }).OPENAI_API_KEY).toBeUndefined();
   });
 });

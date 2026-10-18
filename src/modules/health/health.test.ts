@@ -1,10 +1,11 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../app.js";
+import { db } from "../../infrastructure/database/client.js";
 
 describe("GET /api/v1/health", () => {
   it("returns 200 when the database is reachable", async () => {
-    const app = createApp({ pingDatabase: async () => {} });
+    const app = createApp({ db, pingDatabase: async () => {} });
 
     const res = await request(app).get("/api/v1/health");
 
@@ -15,6 +16,7 @@ describe("GET /api/v1/health", () => {
 
   it("returns 503 when the database is unreachable", async () => {
     const app = createApp({
+      db,
       pingDatabase: async () => {
         throw new Error("connection refused");
       },

@@ -1,9 +1,9 @@
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
-import { closeDatabase, pingDatabase } from "./infrastructure/database/client.js";
+import { closeDatabase, db, pingDatabase } from "./infrastructure/database/client.js";
 import { logger } from "./shared/logger.js";
 
-const app = createApp({ pingDatabase });
+const app = createApp({ db, pingDatabase });
 
 const server = app.listen(env.PORT, () => {
   logger.info(`VerityAI API listening on http://localhost:${env.PORT} (${env.NODE_ENV})`);
