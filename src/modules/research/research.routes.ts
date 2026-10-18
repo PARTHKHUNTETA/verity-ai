@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Database } from "../../infrastructure/database/client.js";
 import type { RunEventBus } from "../../infrastructure/events/run-events.js";
 import { authenticate } from "../../middleware/authenticate.js";
+import { researchRunRateLimit } from "../../middleware/rate-limit.js";
 import { requirePermission } from "../../middleware/require-permission.js";
 import { validate } from "../../middleware/validate.js";
 import { createResearchController } from "./research.controller.js";
@@ -24,6 +25,7 @@ export function researchRoutes(
   router.post(
     "/tasks",
     requirePermission("run:create"),
+    researchRunRateLimit,
     validate({ body: createTaskSchema }),
     controller.createTask,
   );
@@ -36,6 +38,7 @@ export function researchRoutes(
   router.post(
     "/tasks/:taskId/runs",
     requirePermission("run:create"),
+    researchRunRateLimit,
     validate({ params: taskParamsSchema }),
     controller.startRun,
   );

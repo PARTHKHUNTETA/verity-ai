@@ -39,6 +39,7 @@ export const startEvalRunSchema = z.object({
   discovery: z.boolean().default(false),
   revise: z.boolean().default(true),
   collectionIds: z.array(z.uuid()).max(50).optional(),
+  categories: z.array(z.enum(evalCaseCategories)).min(1).max(4).nullish(),
   limit: z.number().int().min(1).max(500).nullish(),
 });
 

@@ -188,6 +188,8 @@ export type EvalConfig = {
   /** Whether the evaluation stage may revise a weak report (Phase 10's loop). */
   revise: boolean;
   collectionIds: string[];
+  /** Only cases of these categories (null = all), e.g. just the red-team cases. */
+  categories?: EvalCaseCategory[] | null;
   /** Only the first N cases (quick smoke runs). */
   limit: number | null;
 };

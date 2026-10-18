@@ -2,6 +2,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import type { Database } from "../../infrastructure/database/client.js";
 import { authenticate, getAuth } from "../../middleware/authenticate.js";
+import { evalRunRateLimit } from "../../middleware/rate-limit.js";
 import { requirePermission } from "../../middleware/require-permission.js";
 import { validate } from "../../middleware/validate.js";
 import { createFeedbackService, type FeedbackInput } from "./feedback.service.js";
@@ -134,9 +135,15 @@ export function evalsRoutes(db: Database, deps: EvalServiceDeps): Router {
       res.json({ runs: await service.listRuns(getAuth(req), datasetId) });
     },
   );
-  router.post("/runs", manage, validate({ body: startEvalRunSchema }), async (req, res) => {
-    res.status(201).json(await service.startRun(getAuth(req), req.body as StartEvalRunInput));
-  });
+  router.post(
+    "/runs",
+    manage,
+    evalRunRateLimit,
+    validate({ body: startEvalRunSchema }),
+    async (req, res) => {
+      res.status(201).json(await service.startRun(getAuth(req), req.body as StartEvalRunInput));
+    },
+  );
   router.get(
     "/runs/:evalRunId",
     read,

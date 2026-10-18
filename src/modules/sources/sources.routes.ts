@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import type { Database } from "../../infrastructure/database/client.js";
+import { uploadRateLimit } from "../../middleware/rate-limit.js";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requirePermission } from "../../middleware/require-permission.js";
 import { validate } from "../../middleware/validate.js";
@@ -51,6 +52,7 @@ export function sourcesRoutes(
   router.post(
     "/collections/:collectionId/sources",
     requirePermission("source:create"),
+    uploadRateLimit,
     validate({ params: collectionParamsSchema }),
     upload.single("file"),
     controller.upload,

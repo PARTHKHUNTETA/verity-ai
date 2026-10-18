@@ -1,5 +1,8 @@
 import cookieParser from "cookie-parser";
+import cors from "cors";
 import express, { type Express } from "express";
+import helmet from "helmet";
+import { env } from "./config/env.js";
 import type { Database } from "./infrastructure/database/client.js";
 import type { RunEventBus } from "./infrastructure/events/run-events.js";
 import type { LlmClient } from "./infrastructure/llm/index.js";
@@ -12,6 +15,7 @@ import type { FileStorage } from "./infrastructure/storage/file-storage.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFound } from "./middleware/not-found.js";
 import { requestId } from "./middleware/request-id.js";
+import { apiRateLimit } from "./middleware/rate-limit.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
@@ -19,6 +23,7 @@ import { evalsRoutes, feedbackRoutes } from "./modules/evaluation/evaluation.rou
 import { observabilityRoutes } from "./modules/observability/observability.routes.js";
 import { organizationRoutes } from "./modules/organizations/organizations.routes.js";
 import { approvalsRoutes, policiesRoutes } from "./modules/policies/policies.routes.js";
+import { reportsRoutes } from "./modules/reports/reports.routes.js";
 import { researchRoutes } from "./modules/research/research.routes.js";
 import { createSearchService } from "./modules/retrieval/search.js";
 import { sourcesRoutes } from "./modules/sources/sources.routes.js";
@@ -57,6 +62,17 @@ export function createApp(deps: AppDependencies): Express {
   // Order matters: id first so every later log line and error response can include it.
   app.use(requestId);
   app.use(requestLogger);
+  // Security headers. The API serves JSON, files and an SSE stream, never HTML pages, so the
+  // strictest content policy applies.
+  app.use(
+    helmet({
+      contentSecurityPolicy: { directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } },
+      crossOriginResourcePolicy: { policy: "same-site" },
+    }),
+  );
+  // The frontend is served from the same origin (its web server proxies /api), so CORS stays
+  // off unless CORS_ORIGINS lists other origins. Credentials allow the refresh cookie.
+  if (env.CORS_ORIGINS.length) app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
 
@@ -71,6 +87,7 @@ export function createApp(deps: AppDependencies): Express {
   api.use("/policies", policiesRoutes(deps.db));
   api.use("/observability", observabilityRoutes(deps.db));
   api.use("/feedback", feedbackRoutes(deps.db));
+  api.use("/reports", reportsRoutes(deps.db));
   api.use(
     "/evals",
     evalsRoutes(deps.db, {
@@ -83,7 +100,7 @@ export function createApp(deps: AppDependencies): Express {
   api.use("/approvals", approvalsRoutes(deps.db, deps.research));
   api.use(sourcesRoutes(deps.db, { ...deps.knowledge, search }));
   // Later phases mount their module routers here, e.g. api.use("/research", researchRoutes(...)).
-  app.use("/api/v1", api);
+  app.use("/api/v1", apiRateLimit, api);
 
   app.use(notFound);
   app.use(errorHandler);

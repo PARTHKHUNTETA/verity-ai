@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { parseArgs } from "node:util";
 import { and, asc, eq } from "drizzle-orm";
 import { env } from "../config/env.js";
@@ -14,7 +15,9 @@ import { chatModelFor, createLlmClient, embeddingModelFor } from "../infrastruct
 import { createLocalFileStorage } from "../infrastructure/storage/file-storage.js";
 import { createAgentRuntime } from "../modules/agent/agent-runtime.js";
 import { researchFakes } from "../modules/agent/fakes.js";
+import { createAuthService } from "../modules/auth/auth.service.js";
 import type { AuthContext } from "../modules/auth/auth.types.js";
+import type { EvalCaseCategory } from "../infrastructure/database/schema/index.js";
 import { createEvalService } from "../modules/evaluation/offline/eval.service.js";
 import { createEvalRunner } from "../modules/evaluation/offline/runner.js";
 import { STARTER_DATASET_NAME } from "../modules/evaluation/offline/starter-dataset.js";
@@ -32,7 +35,10 @@ import { logger } from "../shared/logger.js";
  *
  *   npm run eval -- --dataset ai-agents [--org my-org] [--name "prompt v2"] [--model gpt-5-mini]
  *                   [--top-k 4] [--no-revise] [--discovery] [--limit 5]
- *                   [--min-pass-rate 0.8] [--baseline <evalRunId>] [--install-starter]
+ *                   [--category red_team] [--min-pass-rate 0.8] [--baseline <evalRunId>]
+ *                   [--install-starter] [--bootstrap]
+ *
+ * --bootstrap creates an "eval-ci" organization when the database has none (CI starts empty).
  *
  * Runs in this process (no worker or queue needed), prints the scorecard, and exits with
  * code 1 when the pass rate is below --min-pass-rate or a metric regressed against --baseline.
@@ -48,6 +54,8 @@ const { values: args } = parseArgs({
     "no-revise": { type: "boolean", default: false },
     discovery: { type: "boolean", default: false },
     limit: { type: "string" },
+    category: { type: "string", multiple: true },
+    bootstrap: { type: "boolean", default: false },
     "min-pass-rate": { type: "string", default: "0" },
     baseline: { type: "string" },
     "install-starter": { type: "boolean", default: false },
@@ -74,6 +82,19 @@ async function actor(): Promise<AuthContext> {
     )
     .orderBy(asc(organizationMembers.createdAt));
   const orgs = [...new Set(rows.map((r) => r.slug))];
+  if (!rows.length && args.bootstrap && !args.org) {
+    // An empty database (CI): create an organization and an owner with a throwaway password.
+    console.log('Creating the "eval-ci" organization…');
+    const session = await createAuthService(db).register(
+      {
+        email: "eval-ci@verity.local",
+        password: randomBytes(24).toString("base64url"),
+        organizationName: "eval-ci",
+      },
+      { ip: null, userAgent: "eval-cli" },
+    );
+    return { userId: session.user.id, organizationId: session.organization.id, role: "owner" };
+  }
   if (!rows.length) fail(args.org ? `No organization "${args.org}"` : "No organizations yet");
   if (orgs.length > 1) fail(`Several organizations exist; pass --org (${orgs.join(", ")})`);
   return { userId: rows[0]!.userId, organizationId: rows[0]!.orgId, role: "owner" };
@@ -159,6 +180,7 @@ try {
     discovery: args.discovery!,
     revise: !args["no-revise"],
     limit: args.limit ? Number(args.limit) : null,
+    categories: (args.category as EvalCaseCategory[] | undefined) ?? null,
   });
   console.log(`Eval run ${run.id} on "${dataset.name}" (model ${run.config.model})…`);
   const summary = await runner.execute(run.id);

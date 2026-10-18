@@ -1,4 +1,7 @@
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import { env } from "./config/env.js";
+import * as schema from "./infrastructure/database/schema/index.js";
 import { closeDatabase, db, pool } from "./infrastructure/database/client.js";
 import { createPgRunEventBus } from "./infrastructure/events/run-events.js";
 import { createLlmClient, embeddingModelFor } from "./infrastructure/llm/index.js";
@@ -53,7 +56,12 @@ const acquisition = createAcquisitionService({
   logger,
 });
 const tracer = createTracer({ db, logger });
-await maintainTracePartitions(db, logger);
+// Creating partitions is a schema change: done as the schema owner when one is configured.
+const ownerPool = env.MIGRATION_DATABASE_URL
+  ? new Pool({ connectionString: env.MIGRATION_DATABASE_URL, max: 1 })
+  : null;
+const maintenanceDb = ownerPool ? drizzle(ownerPool, { schema, casing: "snake_case" }) : db;
+await maintainTracePartitions(maintenanceDb, logger);
 const runtime = createAgentRuntime({
   tracer,
   db,
@@ -140,7 +148,7 @@ const sweep = setInterval(
 );
 sweep.unref();
 // Trace partitions: create upcoming months, drop expired ones.
-setInterval(() => void maintainTracePartitions(db, logger), 6 * 60 * 60 * 1000).unref();
+setInterval(() => void maintainTracePartitions(maintenanceDb, logger), 6 * 60 * 60 * 1000).unref();
 
 logger.info(
   `VerityAI worker started (LLM: ${llm.provider}, web search: ${providers.web?.name ?? "off"}, academic: ${providers.academic.map((p) => p.name).join(", ") || "off"}, queues: ${RESEARCH_RUN_QUEUE} ×${CONCURRENCY}, ${SOURCE_INGEST_QUEUE} ×2, ${EVAL_RUN_QUEUE} ×1)`,
@@ -152,6 +160,7 @@ async function shutdown(signal: string) {
   await queue.stop();
   await tracer.shutdown(); // write any buffered spans
   await events.stop();
+  await ownerPool?.end();
   await closeDatabase();
   process.exit(0);
 }

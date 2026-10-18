@@ -1,0 +1,74 @@
+# The whole of VerityAI from Docker images, as it would run in production:
+#
+#   docker compose -f deploy/docker-compose.full.yml --env-file .env up --build
+#
+# Then open http://localhost:8080. Expects the frontend repo next to this one
+# (../verity-ai-frontend). Secrets (JWT_SECRET, OPENAI_API_KEY, …) come from .env.
+name: verity-full
+
+x-backend: &backend
+  build: ..
+  image: verity-ai-backend
+  env_file: ../.env
+  environment: &backend-env
+    NODE_ENV: production
+    DATABASE_URL: postgres://verity:verity@postgres:5432/verity
+    STORAGE_DIR: /data/storage
+  volumes:
+    - storage:/data
+  depends_on:
+    setup:
+      condition: service_completed_successfully
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: verity
+      POSTGRES_PASSWORD: verity
+      POSTGRES_DB: verity
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U verity -d verity"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Release step: migrations, job queue, trace partitions. Runs once, then exits.
+  setup:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      PROCESS: setup
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      PROCESS: api
+
+  worker:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      PROCESS: worker
+    healthcheck:
+      disable: true
+
+  web:
+    build: ../../verity-ai-frontend
+    image: verity-ai-frontend
+    environment:
+      API_UPSTREAM: http://backend:4000
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  storage:

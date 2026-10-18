@@ -255,7 +255,14 @@ export function createEvalRunner({ db, runtime, llm, logger, track }: EvalRunner
         const cases = await db
           .select()
           .from(evalCases)
-          .where(eq(evalCases.datasetId, evalRun.datasetId))
+          .where(
+            and(
+              eq(evalCases.datasetId, evalRun.datasetId),
+              evalRun.config.categories?.length
+                ? inArray(evalCases.category, evalRun.config.categories)
+                : undefined,
+            ),
+          )
           .orderBy(asc(evalCases.position), asc(evalCases.createdAt))
           .limit(evalRun.config.limit ?? 10_000);
         const done = new Set(

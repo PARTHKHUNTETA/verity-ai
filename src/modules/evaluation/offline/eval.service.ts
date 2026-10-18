@@ -326,6 +326,7 @@ export function createEvalService(db: Database, deps: EvalServiceDeps) {
         discovery: input.discovery,
         revise: input.revise,
         collectionIds,
+        categories: input.categories ?? null,
         limit: input.limit ?? null,
       };
       const [row] = await db
@@ -371,7 +372,14 @@ export function createEvalService(db: Database, deps: EvalServiceDeps) {
       const [{ total } = { total: 0 }] = await db
         .select({ total: count() })
         .from(evalCases)
-        .where(eq(evalCases.datasetId, row.datasetId));
+        .where(
+          and(
+            eq(evalCases.datasetId, row.datasetId),
+            row.config.categories?.length
+              ? inArray(evalCases.category, row.config.categories)
+              : undefined,
+          ),
+        );
       const list = await results(row.id);
       // The case being worked on right now, if any.
       const [current] = await activeResearchRuns(db, actor.organizationId, row.id);

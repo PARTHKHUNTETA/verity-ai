@@ -10,6 +10,21 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+  /**
+   * Optional separate connection for schema changes (migrations, queue setup, partitions), as
+   * the owner role. The API then runs as a role that can only read and write rows.
+   */
+  MIGRATION_DATABASE_URL: z.preprocess(emptyToUndefined, z.string().optional()),
+  /** Comma-separated origins allowed to call the API from a browser (empty = same origin only). */
+  CORS_ORIGINS: z
+    .string()
+    .default("")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
   DATABASE_URL: z.preprocess(
     emptyToUndefined,
     z
@@ -73,8 +88,37 @@ function emptyToUndefined(value: unknown) {
   return value === "" ? undefined : value;
 }
 
+/** Settings that are optional in development but must be right in production. */
+const productionChecks = (env: z.infer<typeof envSchema>, ctx: z.RefinementCtx) => {
+  if (env.NODE_ENV !== "production") return;
+  if (env.LLM_PROVIDER === "fake")
+    ctx.addIssue({
+      code: "custom",
+      path: ["LLM_PROVIDER"],
+      message: "Use a real LLM provider in production",
+    });
+  if (env.LLM_PROVIDER === "openai" && !env.OPENAI_API_KEY)
+    ctx.addIssue({
+      code: "custom",
+      path: ["OPENAI_API_KEY"],
+      message: "Required when LLM_PROVIDER=openai",
+    });
+  if (env.WEB_SEARCH_PROVIDER === "tavily" && !env.TAVILY_API_KEY)
+    ctx.addIssue({
+      code: "custom",
+      path: ["TAVILY_API_KEY"],
+      message: "Required when WEB_SEARCH_PROVIDER=tavily",
+    });
+  if (/change-me|dev-only|secret-secret/i.test(env.JWT_SECRET))
+    ctx.addIssue({
+      code: "custom",
+      path: ["JWT_SECRET"],
+      message: "Replace the example JWT secret",
+    });
+};
+
 export function parseEnv(source: NodeJS.ProcessEnv): Env {
-  const result = envSchema.safeParse(source);
+  const result = envSchema.superRefine(productionChecks).safeParse(source);
   if (!result.success) {
     const problems = result.error.issues
       .map((issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`)

@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, typecheck, test, build, eval smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: verity
+          POSTGRES_PASSWORD: verity
+          POSTGRES_DB: verity
+        # Same port as local development (src/tests/test-env.ts expects 5433).
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U verity -d verity"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://verity:verity@localhost:5433/verity
+      JWT_SECRET: ci-only-secret-that-is-at-least-32-characters
+      # The fake provider: no API keys, no cost, deterministic.
+      LLM_PROVIDER: fake
+      WEB_SEARCH_PROVIDER: none
+      LOG_LEVEL: warn
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Format
+        run: npx prettier --check src
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests (integration tests use the Postgres service)
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Database setup (migrations, job queue, partitions)
+        run: npm run db:setup
+      - name: Offline eval smoke test (red-team cases, fake provider)
+        # Plumbing check: the whole pipeline runs on the prompt-injection fixtures and the
+        # scorers catch forbidden content. Real-model evals run on demand with an API key.
+        run: npm run eval -- --bootstrap --install-starter --category red_team --min-pass-rate 1
