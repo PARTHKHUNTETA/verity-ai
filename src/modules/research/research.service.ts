@@ -1,8 +1,10 @@
+import { and, eq } from "drizzle-orm";
 import type { Database } from "../../infrastructure/database/client.js";
-import type {
-  Report,
-  ResearchRun,
-  ResearchTask,
+import {
+  approvals,
+  type Report,
+  type ResearchRun,
+  type ResearchTask,
 } from "../../infrastructure/database/schema/index.js";
 import { terminalRunStatuses } from "../../infrastructure/database/schema/index.js";
 import type { RunEventPublisher } from "../../infrastructure/events/run-events.js";
@@ -23,6 +25,8 @@ import {
   listCitations,
   listRunSources,
   listRunsForTasks,
+  listRunApprovals,
+  listRunDecisions,
   listSteps,
   listSubQuestions,
   listToolCalls,
@@ -98,8 +102,12 @@ export type RunDetail = {
   subQuestions: Awaited<ReturnType<typeof listSubQuestions>>;
   /** What the agent did, step by step. */
   steps: Awaited<ReturnType<typeof listSteps>>;
-  /** Code the agent ran during analysis. */
+  /** Tool calls the agent made (search, fetch, rag, run_code). */
   toolCalls: Awaited<ReturnType<typeof listToolCalls>>;
+  /** Human approvals this run asked for. */
+  approvals: Awaited<ReturnType<typeof listRunApprovals>>;
+  /** Policy decisions other than "allow". */
+  decisions: Awaited<ReturnType<typeof listRunDecisions>>;
 };
 
 /** A re-run keeps the discovery setting of the task's latest run. */
@@ -137,14 +145,17 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
   async function getRunDetail(actor: AuthContext, runId: string): Promise<RunDetail> {
     const row = await findRun(db, actor.organizationId, runId);
     if (!row) throw new NotFoundError("Run not found");
-    const [report, citations, discovered, plan, steps, codeRuns] = await Promise.all([
-      findLatestReport(db, actor.organizationId, runId),
-      listCitations(db, actor.organizationId, runId),
-      listRunSources(db, actor.organizationId, runId),
-      listSubQuestions(db, actor.organizationId, runId),
-      listSteps(db, actor.organizationId, runId),
-      listToolCalls(db, actor.organizationId, runId),
-    ]);
+    const [report, citations, discovered, plan, steps, codeRuns, runApprovals, decisions] =
+      await Promise.all([
+        findLatestReport(db, actor.organizationId, runId),
+        listCitations(db, actor.organizationId, runId),
+        listRunSources(db, actor.organizationId, runId),
+        listSubQuestions(db, actor.organizationId, runId),
+        listSteps(db, actor.organizationId, runId),
+        listToolCalls(db, actor.organizationId, runId),
+        listRunApprovals(db, actor.organizationId, runId),
+        listRunDecisions(db, actor.organizationId, runId),
+      ]);
     return {
       run: toRunDto(row.run),
       task: toTaskDto(row.task),
@@ -154,6 +165,8 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
       subQuestions: plan,
       steps,
       toolCalls: codeRuns,
+      approvals: runApprovals,
+      decisions,
     };
   }
 
@@ -235,6 +248,11 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
       }
       const cancelled = await cancelRun(db, actor.organizationId, runId);
       if (!cancelled) throw new ConflictError(`Run is already ${row.run.status}`);
+      // Nobody needs to approve anything for a cancelled run.
+      await db
+        .update(approvals)
+        .set({ status: "rejected", comment: "Run cancelled", decidedAt: new Date() })
+        .where(and(eq(approvals.runId, runId), eq(approvals.status, "pending")));
       // The worker listens for this event and aborts the LLM call.
       await deps.events.publish({
         type: "status",

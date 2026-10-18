@@ -16,12 +16,12 @@ import {
   type ParsedDocument,
   type SupportedMimeType,
 } from "./parsers.js";
-import { canonicalizeUrl, checkDomain, domainOf, type DomainPolicy } from "./urls.js";
+import { canonicalizeUrl, domainOf } from "./urls.js";
 
 /**
  * Acquisition (docs/system-design.md §3, stage 3): turns a search result into an indexed source.
  *
- *   domain rules → cache (same canonical URL already indexed?) → safe fetch → parse →
+ *   cache (same canonical URL already indexed?) → safe fetch → parse →
  *   dedupe by content hash → store original → chunk + embed (same pipeline as uploads)
  *
  * If the full text can't be fetched (paywall, timeout, unsupported format) but the search result
@@ -37,7 +37,6 @@ export type AcquisitionDeps = {
   fetcher: SafeFetcher;
   storage: FileStorage;
   ingestion: IngestionService;
-  domainPolicy: DomainPolicy;
   logger: Logger;
 };
 
@@ -61,7 +60,6 @@ export function createAcquisitionService({
   fetcher,
   storage,
   ingestion,
-  domainPolicy,
   logger,
 }: AcquisitionDeps) {
   async function findBy(
@@ -126,10 +124,7 @@ export function createAcquisitionService({
       } catch {
         return { status: "rejected", reason: "Invalid URL" };
       }
-      const blockedReason =
-        checkDomain(candidate.url, domainPolicy) ??
-        (candidate.pdfUrl ? checkDomain(candidate.pdfUrl, domainPolicy) : null);
-      if (blockedReason) return { status: "blocked", reason: blockedReason };
+      // Domain rules are enforced by the policy gateway before acquire() is called.
 
       // Cache: this page/paper is already indexed for the organization.
       const cached = await findBy(organizationId, "canonicalUrl", canonicalUrl);

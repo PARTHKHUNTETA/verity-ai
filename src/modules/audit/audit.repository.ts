@@ -10,7 +10,9 @@ export type AuditAction =
   | "auth.refresh_reuse_detected"
   | "member.add"
   | "member.role_change"
-  | "member.remove";
+  | "member.remove"
+  | "approval.decide"
+  | "policy.update";
 
 export type AuditEntry = Omit<NewAuditLog, "id" | "createdAt" | "action" | "ip" | "userAgent"> & {
   action: AuditAction;

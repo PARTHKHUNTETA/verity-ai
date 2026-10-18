@@ -30,6 +30,8 @@ import { createIngestionService } from "../retrieval/ingestion.js";
 import { createSearchService } from "../retrieval/search.js";
 import { createAgentRuntime } from "./agent-runtime.js";
 import { researchFakes } from "./fakes.js";
+import { saveNewVersion } from "../policies/policies.repository.js";
+import { DEFAULT_POLICY_RULES } from "../policies/policy-rules.js";
 import { loadState } from "./state.js";
 
 beforeEach(resetDatabase);
@@ -140,12 +142,16 @@ describe("research pipeline", () => {
     });
 
     // Analysis: the tool loop ran code in the sandbox.
-    const calls = await db.select().from(toolCalls).where(eq(toolCalls.runId, runId));
+    // Every tool goes through the gateway; the analysis made exactly one code run.
+    const allCalls = await db.select().from(toolCalls).where(eq(toolCalls.runId, runId));
+    expect(new Set(allCalls.map((c) => c.tool))).toEqual(new Set(["rag", "run_code"]));
+    const calls = allCalls.filter((c) => c.tool === "run_code");
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ tool: "run_code", status: "succeeded" });
-    expect((calls[0]!.result as { value: { distinctSources: number } }).value.distinctSources).toBe(
-      1,
-    );
+    // The stored result is the sandbox outcome: { ok, result, logs, durationMs }.
+    expect(
+      (calls[0]!.result as { result: { distinctSources: number } }).result.distinctSources,
+    ).toBe(1);
 
     // Report: title + required sections + comparison table, with claims linked to evidence.
     const [report] = await db.select().from(reports).where(eq(reports.runId, runId));
@@ -179,7 +185,9 @@ describe("research pipeline", () => {
       .set("Authorization", bearer(owner as TestSession));
     expect(detail.body.subQuestions).toHaveLength(3);
     expect(detail.body.steps.length).toBe(steps.length);
-    expect(detail.body.toolCalls[0]).toMatchObject({ tool: "run_code", status: "succeeded" });
+    expect(detail.body.toolCalls).toContainEqual(
+      expect.objectContaining({ tool: "run_code", status: "succeeded" }),
+    );
     expect(detail.body.citations[0]).toMatchObject({ number: 1, stance: "supports" });
   });
 
@@ -219,7 +227,7 @@ describe("research pipeline", () => {
     expect((await runRow(runId)).status).toBe("completed");
   });
 
-  it("stops a run that exceeds its step budget", async () => {
+  it("stops a run that exceeds its step budget (when the policy says not to ask)", async () => {
     const { runId } = await setup();
     await db
       .update(researchRuns)
@@ -227,6 +235,10 @@ describe("research pipeline", () => {
         config: { collectionIds: [], discovery: { enabled: false }, budget: { maxSteps: 2 } },
       })
       .where(eq(researchRuns.id, runId));
+    const [run] = await db.select().from(researchRuns).where(eq(researchRuns.id, runId));
+    const rules = structuredClone(DEFAULT_POLICY_RULES);
+    rules.budget.onExceed = "fail";
+    await saveNewVersion(db, run!.organizationId, rules, run!.startedBy!);
 
     await runtimeWith().runtime.runResearch(runId);
 

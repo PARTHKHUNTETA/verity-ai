@@ -231,15 +231,24 @@ export const toolCalls = pgTable(
       .notNull()
       .references(() => researchRuns.id, { onDelete: "cascade" }),
     stepId: uuid("step_id").references(() => agentSteps.id, { onDelete: "set null" }),
+    stage: runStage("stage"),
     tool: text("tool").notNull(),
     args: jsonb("args").$type<Record<string, unknown>>().notNull(),
+    /**
+     * SHA-256 of tool + arguments. The same call in a resumed run is recognized by it: an
+     * approved call runs, a finished call returns its stored result instead of running again.
+     */
+    argsHash: text("args_hash").notNull(),
     status: toolCallStatus("status").notNull().default("proposed"),
     result: jsonb("result").$type<unknown>(),
     error: text("error"),
     durationMs: integer("duration_ms"),
     createdAt: createdAt(),
   },
-  (t) => [index("tool_calls_run_idx").on(t.runId, t.createdAt)],
+  (t) => [
+    index("tool_calls_run_idx").on(t.runId, t.createdAt),
+    index("tool_calls_run_hash_idx").on(t.runId, t.argsHash),
+  ],
 );
 
 /** A factual statement in a report. Phase 5: every sentence that carries a citation. */

@@ -88,3 +88,17 @@ export const toolCallStatuses = [
 ] as const;
 export type ToolCallStatus = (typeof toolCallStatuses)[number];
 export const toolCallStatus = pgEnum("tool_call_status", toolCallStatuses);
+
+/** The policy gateway's verdict on a tool call (docs/system-design.md §4.7). */
+export const policyDecisionValues = ["allow", "deny", "require_approval"] as const;
+export type PolicyDecisionValue = (typeof policyDecisionValues)[number];
+export const policyDecision = pgEnum("policy_decision", policyDecisionValues);
+
+export const approvalStatuses = ["pending", "approved", "rejected", "expired"] as const;
+export type ApprovalStatus = (typeof approvalStatuses)[number];
+export const approvalStatus = pgEnum("approval_status", approvalStatuses);
+
+/** What an approval is for: one specific tool call, or more budget for a run. */
+export const approvalKinds = ["tool_call", "budget"] as const;
+export type ApprovalKind = (typeof approvalKinds)[number];
+export const approvalKind = pgEnum("approval_kind", approvalKinds);

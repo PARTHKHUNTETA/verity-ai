@@ -7,6 +7,8 @@ import type {
 } from "../../../infrastructure/database/schema/index.js";
 import type { RunEventPublisher } from "../../../infrastructure/events/run-events.js";
 import type { LlmClient, LlmUsage } from "../../../infrastructure/llm/index.js";
+import type { ExecuteOptions, ToolOutcome } from "../../policies/executor.js";
+import type { ToolName } from "../../policies/policy-rules.js";
 import type { AcquisitionService } from "../../retrieval/acquisition.js";
 import type { SearchService } from "../../retrieval/search.js";
 import type { CodeSandbox } from "../../tools/code.tool.js";
@@ -51,4 +53,16 @@ export type StageContext = {
   trackUsage: (model: string, usage: LlmUsage) => number | null;
   /** Throws if the run was cancelled or timed out. */
   checkCancelled: () => void;
+  /**
+   * Runs an agent tool through the policy gateway (the only way stages may use tools).
+   * Throws ApprovalRequiredError when a human has to decide first.
+   */
+  tools: {
+    call<T>(
+      tool: ToolName,
+      args: Record<string, unknown>,
+      fn: () => Promise<T>,
+      options: ExecuteOptions<T>,
+    ): Promise<ToolOutcome<T>>;
+  };
 };

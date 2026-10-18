@@ -126,7 +126,6 @@ function buildRuntime() {
     fetcher,
     storage: memoryStorage,
     ingestion,
-    domainPolicy: { blocked: ["spam.example"], allowed: [] },
     logger,
   });
   return createAgentRuntime({
@@ -140,6 +139,8 @@ function buildRuntime() {
       acquisition,
       maxSources: 5,
     },
+    // spam.example is blocked platform-wide; the gateway denies the fetch before it happens.
+    platformDomains: { blocked: ["spam.example"], allowed: [] },
   });
 }
 
@@ -171,7 +172,7 @@ describe("discovery and acquisition", () => {
     expect(byTitle["Internal admin"]!.reason).toMatch(/non-public address/);
     expect(byTitle["Clickbait"]).toMatchObject({
       status: "blocked",
-      reason: "Domain spam.example is blocked",
+      reason: "Policy: Domain spam.example is blocked",
     });
     expect(byTitle["Evaluating Research Agents"]!.reason).toMatch(/indexed the abstract/);
     // Sources that ended up cited are marked "used".

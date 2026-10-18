@@ -14,6 +14,7 @@ import { createSafeFetcher } from "./infrastructure/http/safe-fetch.js";
 import { createAgentRuntime } from "./modules/agent/agent-runtime.js";
 import { researchFakes } from "./modules/agent/fakes.js";
 import { failStalledRuns } from "./modules/agent/maintenance.js";
+import { createApprovalsService } from "./modules/policies/approvals.service.js";
 import { createAcquisitionService } from "./modules/retrieval/acquisition.js";
 import { parseDomainList } from "./modules/retrieval/urls.js";
 import { discoveryProvidersFrom } from "./modules/tools/discovery.js";
@@ -44,10 +45,6 @@ const acquisition = createAcquisitionService({
   }),
   storage,
   ingestion,
-  domainPolicy: {
-    blocked: parseDomainList(env.BLOCKED_DOMAINS),
-    allowed: parseDomainList(env.ALLOWED_DOMAINS),
-  },
   logger,
 });
 const runtime = createAgentRuntime({
@@ -57,6 +54,11 @@ const runtime = createAgentRuntime({
   events,
   logger,
   discovery: { providers, acquisition, maxSources: env.MAX_SOURCES_PER_RUN },
+  // Platform-wide domain rules (env); each org's own rules come from its policy.
+  platformDomains: {
+    blocked: parseDomainList(env.BLOCKED_DOMAINS),
+    allowed: parseDomainList(env.ALLOWED_DOMAINS),
+  },
 });
 
 /** Runs being executed by this worker, so a cancel event can abort the right one. */
@@ -98,8 +100,14 @@ await queue.boss.work<SourceIngestJob>(
 );
 
 // Safety net: runs whose job was given up on (worker died twice) are marked failed.
+// Expired approval requests count as rejected (budget requests fail the run).
+const approvalsService = createApprovalsService(db, { queue, events });
 const sweep = setInterval(
   () => {
+    approvalsService
+      .expireStale()
+      .then((n) => n && logger.info({ expired: n }, "Expired stale approval requests"))
+      .catch((err) => logger.error({ err }, "Approval expiry sweep failed"));
     failStalledRuns(db)
       .then((ids) => ids.length && logger.warn({ runIds: ids }, "Marked stalled runs as failed"))
       .catch((err) => logger.error({ err }, "Stalled-run sweep failed"));

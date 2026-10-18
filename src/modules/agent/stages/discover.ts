@@ -9,6 +9,7 @@ const MAX_CANDIDATES = 24;
 /**
  * Discovering: each sub-question's first search query goes to every provider. Providers run in
  * parallel; each provider handles its queries one after another (arXiv asks for ≤1 req/3 s).
+ * Every search goes through the policy gateway.
  */
 export async function discoverStage(ctx: StageContext, deps: DiscoveryDeps): Promise<void> {
   await ctx.db.delete(runSources).where(eq(runSources.runId, ctx.run.id)); // resume: start clean
@@ -35,11 +36,22 @@ export async function discoverStage(ctx: StageContext, deps: DiscoveryDeps): Pro
       const lists: Found[][] = [];
       for (const { subQuestionId, query } of queries) {
         ctx.checkCancelled();
-        try {
-          const results = await provider.search(query, { limit, signal: ctx.signal });
-          lists.push(results.map((r) => ({ ...r, subQuestionId, query })));
-        } catch (err) {
-          const error = err instanceof Error ? err.message : String(err);
+        const outcome = await ctx.tools.call(
+          "search",
+          { provider: provider.name, query, limit },
+          () => provider.search(query, { limit, signal: ctx.signal }),
+          {
+            stage: "discovering",
+            summary: `Search ${provider.name} for "${query}"`,
+            retries: 1,
+            timeoutMs: 30_000,
+          },
+        );
+        if (outcome.status === "succeeded") {
+          lists.push(outcome.result.map((r) => ({ ...r, subQuestionId, query })));
+        } else {
+          const error =
+            outcome.status === "denied" ? `Denied by policy: ${outcome.reason}` : outcome.error;
           errors.push({ provider: provider.name, query, error });
           ctx.logger.warn({ runId: ctx.run.id, provider: provider.name, error }, "Search failed");
         }

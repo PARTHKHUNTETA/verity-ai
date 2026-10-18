@@ -7,8 +7,8 @@ const MAX_PASSAGES = 20;
 
 /**
  * Retrieving: hybrid search per sub-question over the user's collections plus the documents
- * acquired for this run. Each passage is kept once (for the first sub-question that found it)
- * and numbered P1..Pn for evidence extraction.
+ * acquired for this run (through the policy gateway, which re-checks collection access).
+ * Each passage is kept once and numbered P1..Pn for evidence extraction.
  */
 export async function retrieveStage(ctx: StageContext): Promise<void> {
   const started = Date.now();
@@ -18,17 +18,29 @@ export async function retrieveStage(ctx: StageContext): Promise<void> {
     .where(eq(subQuestions.runId, ctx.run.id))
     .orderBy(asc(subQuestions.position));
 
+  const collectionIds = ctx.config.collectionIds ?? [];
+  const sourceIds = ctx.state.acquiredSourceIds;
   const seen = new Set<string>();
   const passages: Passage[] = [];
   const perSubQuestion: Record<number, number> = {};
+  const denied: string[] = [];
   for (const sq of sqs) {
     ctx.checkCancelled();
-    const hits = await ctx.search.search(sq.text, {
-      organizationId: ctx.run.organizationId,
-      collectionIds: ctx.config.collectionIds ?? [],
-      sourceIds: ctx.state.acquiredSourceIds,
-      topK: ctx.config.topK ?? 4,
-    });
+    const outcome = await ctx.tools.call(
+      "rag",
+      { query: sq.text, collectionIds, sourceIds },
+      () =>
+        ctx.search.search(sq.text, {
+          organizationId: ctx.run.organizationId,
+          collectionIds,
+          sourceIds,
+          topK: ctx.config.topK ?? 4,
+        }),
+      { stage: "retrieving", summary: `Search your sources for "${sq.text}"` },
+    );
+    if (outcome.status !== "succeeded")
+      denied.push(outcome.status === "denied" ? outcome.reason : outcome.error);
+    const hits = outcome.status === "succeeded" ? outcome.result : [];
     perSubQuestion[sq.position] = 0;
     for (const hit of hits) {
       if (seen.has(hit.chunkId) || passages.length >= MAX_PASSAGES) continue;
@@ -56,10 +68,10 @@ export async function retrieveStage(ctx: StageContext): Promise<void> {
     input: {
       tool: "rag",
       subQuestions: sqs.length,
-      collectionIds: ctx.config.collectionIds ?? [],
-      acquiredSources: ctx.state.acquiredSourceIds.length,
+      collectionIds,
+      acquiredSources: sourceIds.length,
     },
-    output: { passages: passages.length, perSubQuestion },
+    output: { passages: passages.length, perSubQuestion, denied },
     durationMs: Date.now() - started,
   });
 }

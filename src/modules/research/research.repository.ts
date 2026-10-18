@@ -2,7 +2,9 @@ import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { DbExecutor } from "../../infrastructure/database/client.js";
 import {
   agentSteps,
+  approvals,
   evidence,
+  policyDecisions,
   reports,
   researchRuns,
   researchTasks,
@@ -202,6 +204,7 @@ export async function listToolCalls(db: DbExecutor, organizationId: string, runI
   return db
     .select({
       id: toolCalls.id,
+      stage: toolCalls.stage,
       tool: toolCalls.tool,
       args: toolCalls.args,
       status: toolCalls.status,
@@ -213,4 +216,47 @@ export async function listToolCalls(db: DbExecutor, organizationId: string, runI
     .from(toolCalls)
     .where(and(eq(toolCalls.runId, runId), eq(toolCalls.organizationId, organizationId)))
     .orderBy(asc(toolCalls.createdAt));
+}
+
+/** Approvals requested by a run (pending and decided). */
+export async function listRunApprovals(db: DbExecutor, organizationId: string, runId: string) {
+  return db
+    .select({
+      id: approvals.id,
+      kind: approvals.kind,
+      summary: approvals.summary,
+      status: approvals.status,
+      comment: approvals.comment,
+      createdAt: approvals.createdAt,
+      decidedAt: approvals.decidedAt,
+    })
+    .from(approvals)
+    .where(and(eq(approvals.runId, runId), eq(approvals.organizationId, organizationId)))
+    .orderBy(asc(approvals.createdAt));
+}
+
+/** Gateway decisions that weren't a plain "allow" (denials and approval requests). */
+export async function listRunDecisions(db: DbExecutor, organizationId: string, runId: string) {
+  return db
+    .select({
+      id: policyDecisions.id,
+      tool: toolCalls.tool,
+      args: toolCalls.args,
+      decision: policyDecisions.decision,
+      matchedRule: policyDecisions.matchedRule,
+      reason: policyDecisions.reason,
+      policyVersion: policyDecisions.policyVersion,
+      createdAt: policyDecisions.createdAt,
+    })
+    .from(policyDecisions)
+    .leftJoin(toolCalls, eq(toolCalls.id, policyDecisions.toolCallId))
+    .where(
+      and(
+        eq(policyDecisions.runId, runId),
+        eq(policyDecisions.organizationId, organizationId),
+        inArray(policyDecisions.decision, ["deny", "require_approval"]),
+      ),
+    )
+    .orderBy(asc(policyDecisions.createdAt))
+    .limit(100);
 }

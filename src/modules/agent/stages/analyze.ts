@@ -30,7 +30,6 @@ const RUN_CODE_TOOL = {
  * MAX_ANALYSIS_TURNS model turns and MAX_CODE_RUNS executions, plus the run budget.
  */
 export async function analyzeStage(ctx: StageContext): Promise<void> {
-  await ctx.db.delete(toolCalls).where(eq(toolCalls.runId, ctx.run.id)); // resume: start clean
   const data = await analysisData(ctx);
   if (data.evidence.length === 0) {
     ctx.state.analysis = null;
@@ -88,39 +87,44 @@ export async function analyzeStage(ctx: StageContext): Promise<void> {
         continue;
       }
       codeRuns++;
-      const [row] = await ctx.db
-        .insert(toolCalls)
-        .values({
-          organizationId: ctx.run.organizationId,
-          runId: ctx.run.id,
-          tool: "run_code",
-          args: args.data,
-          status: "running",
-        })
-        .returning({ id: toolCalls.id });
-      const outcome = await ctx.sandbox.run(args.data.code, data);
+      // Through the policy gateway: may be denied, or pause the run for approval.
+      const outcome = await ctx.tools.call(
+        "run_code",
+        args.data,
+        () => ctx.sandbox.run(args.data.code, data),
+        { stage: "analyzing", summary: `Run code: ${args.data.purpose}` },
+      );
+      const observation =
+        outcome.status === "succeeded"
+          ? outcome.result
+          : {
+              ok: false,
+              error:
+                outcome.status === "denied" ? `Denied by policy: ${outcome.reason}` : outcome.error,
+            };
       const stepId = await ctx.recordStep({
         stage: "analyzing",
         type: "tool_call",
         input: { tool: "run_code", purpose: args.data.purpose },
-        output: outcome.ok
-          ? { ok: true, result: outcome.result }
-          : { ok: false, error: outcome.error },
-        durationMs: outcome.durationMs,
+        output:
+          outcome.status === "succeeded"
+            ? { ok: outcome.result.ok, cached: outcome.cached }
+            : {
+                ok: false,
+                denied: outcome.status === "denied",
+                error: (observation as { error: string }).error,
+              },
+        durationMs: outcome.status === "succeeded" ? outcome.result.durationMs : 0,
       });
-      await ctx.db
-        .update(toolCalls)
-        .set({
-          stepId,
-          status: outcome.ok ? "succeeded" : "failed",
-          result: outcome.ok
-            ? { value: outcome.result, logs: outcome.logs }
-            : { logs: outcome.logs },
-          error: outcome.ok ? null : outcome.error,
-          durationMs: outcome.durationMs,
-        })
-        .where(eq(toolCalls.id, row!.id));
-      items.push({ type: "tool_result", callId: call.callId, output: JSON.stringify(outcome) });
+      await ctx.db.update(toolCalls).set({ stepId }).where(eq(toolCalls.id, outcome.toolCallId));
+      // A sandbox error (bad code) is a failed computation, not a failed tool call.
+      if (outcome.status === "succeeded" && !outcome.result.ok) {
+        await ctx.db
+          .update(toolCalls)
+          .set({ status: "failed", error: outcome.result.error })
+          .where(eq(toolCalls.id, outcome.toolCallId));
+      }
+      items.push({ type: "tool_result", callId: call.callId, output: JSON.stringify(observation) });
     }
   }
   ctx.state.analysis = analysis;
