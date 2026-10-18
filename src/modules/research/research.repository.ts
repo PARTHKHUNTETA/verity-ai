@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { DbExecutor } from "../../infrastructure/database/client.js";
 import {
   agentSteps,
@@ -90,7 +90,8 @@ export async function findLatestReport(db: DbExecutor, organizationId: string, r
     .select()
     .from(reports)
     .where(and(eq(reports.runId, runId), eq(reports.organizationId, organizationId)))
-    .orderBy(desc(reports.version))
+    // The version shown: the newest one that hasn't been superseded by the evaluation stage.
+    .orderBy(sql`${reports.status} = 'superseded'`, desc(reports.version))
     .limit(1);
   return report;
 }

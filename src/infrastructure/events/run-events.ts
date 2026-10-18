@@ -15,8 +15,11 @@ import type { RunStage, RunStatus } from "../database/schema/index.js";
 
 export type RunEvent =
   | { type: "status"; runId: string; status: RunStatus; stage: RunStage | null }
-  /** A piece of generated text. `offset` = length of the answer before this piece. */
-  | { type: "delta"; runId: string; offset: number; text: string };
+  /**
+   * A piece of generated text. `offset` = length of the answer before this piece. `version` is
+   * the report version (2 = the revision written after evaluation); a new version starts at 0.
+   */
+  | { type: "delta"; runId: string; offset: number; text: string; version?: number };
 
 export type RunEventListener = (event: RunEvent) => void;
 

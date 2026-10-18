@@ -103,6 +103,7 @@ describe("research pipeline", () => {
       "extracting",
       "analyzing",
       "synthesizing",
+      "evaluating",
     ]);
     // The UI saw every stage in order.
     const stages = events.published
@@ -114,7 +115,8 @@ describe("research pipeline", () => {
       "extracting",
       "analyzing",
       "synthesizing",
-      "synthesizing",
+      "evaluating",
+      "evaluating",
     ]);
 
     // Plan: 3 sub-questions, all answered with cited evidence.

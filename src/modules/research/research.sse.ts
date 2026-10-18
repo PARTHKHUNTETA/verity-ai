@@ -9,7 +9,7 @@ import { isTerminal, type ResearchService } from "./research.service.js";
  * Protocol (each message is `event: <name>\ndata: <json>\n\n`):
  *   snapshot  full run detail from the DB (sent first, after each status change, and at the end)
  *   status    { status, stage } changed
- *   delta     { offset, text }: append `text` at position `offset` of the answer
+ *   delta     { offset, text, version }: append `text` at position `offset` of report `version`
  *   done      the run is finished; the server closes the stream
  *
  * Ordering trick: we subscribe to live events BEFORE reading the snapshot and buffer them,
@@ -58,7 +58,11 @@ export function createRunStreamHandler(
         return;
       }
       if (event.type === "delta") {
-        send(res, "delta", { offset: event.offset, text: event.text });
+        send(res, "delta", {
+          offset: event.offset,
+          text: event.text,
+          version: event.version ?? 1,
+        });
       } else {
         send(res, "status", { status: event.status, stage: event.stage });
         if (isTerminal(event.status)) void finish().catch(() => cleanup());

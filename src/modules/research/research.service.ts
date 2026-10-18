@@ -11,6 +11,11 @@ import type { RunEventPublisher } from "../../infrastructure/events/run-events.j
 import type { ResearchJobQueue } from "../../infrastructure/queue/queue.js";
 import { ConflictError, ForbiddenError, NotFoundError } from "../../shared/errors.js";
 import { PIPELINE_VERSION } from "../agent/pipeline.js";
+import {
+  findReportRating,
+  findScorecard,
+  listJudgedClaims,
+} from "../evaluation/evaluation.repository.js";
 import { getRunTrace } from "../observability/trace.service.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { can } from "../policies/permissions.js";
@@ -109,6 +114,12 @@ export type RunDetail = {
   approvals: Awaited<ReturnType<typeof listRunApprovals>>;
   /** Policy decisions other than "allow". */
   decisions: Awaited<ReturnType<typeof listRunDecisions>>;
+  /** Online evaluation (Phase 10): the scorecard, judged claims and the reader's own ratings. */
+  evaluation: {
+    scorecard: Awaited<ReturnType<typeof findScorecard>>;
+    claims: Awaited<ReturnType<typeof listJudgedClaims>>;
+    myReportRating: Awaited<ReturnType<typeof findReportRating>>;
+  };
 };
 
 /** A re-run keeps the discovery setting of the task's latest run. */
@@ -157,6 +168,13 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
         listRunApprovals(db, actor.organizationId, runId),
         listRunDecisions(db, actor.organizationId, runId),
       ]);
+    const [scorecard, judgedClaims, myReportRating] = report
+      ? await Promise.all([
+          findScorecard(db, actor.organizationId, runId),
+          listJudgedClaims(db, actor.organizationId, report.id, actor.userId),
+          findReportRating(db, report.id, actor.userId),
+        ])
+      : [null, [], null];
     return {
       run: toRunDto(row.run),
       task: toTaskDto(row.task),
@@ -168,6 +186,7 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
       toolCalls: codeRuns,
       approvals: runApprovals,
       decisions,
+      evaluation: { scorecard, claims: judgedClaims, myReportRating },
     };
   }
 
@@ -179,6 +198,13 @@ export function createResearchService(db: Database, deps: ResearchDeps) {
       const row = await findRun(db, actor.organizationId, runId);
       if (!row) throw new NotFoundError("Run not found");
       return getRunTrace(db, actor.organizationId, runId);
+    },
+
+    /** The run's scorecard (null until the evaluation stage has run). */
+    async getScorecard(actor: AuthContext, runId: string) {
+      const row = await findRun(db, actor.organizationId, runId);
+      if (!row) throw new NotFoundError("Run not found");
+      return { scorecard: await findScorecard(db, actor.organizationId, runId) };
     },
 
     /** Creates a task and its first run, then queues the run. */

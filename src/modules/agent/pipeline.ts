@@ -15,6 +15,7 @@ export const PIPELINE_STAGES: readonly RunStage[] = [
   "extracting",
   "analyzing",
   "synthesizing",
+  "evaluating",
 ];
 
 export const DISCOVERY_STAGES: readonly RunStage[] = ["discovering", "acquiring"];

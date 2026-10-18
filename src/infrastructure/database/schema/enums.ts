@@ -107,3 +107,8 @@ export const approvalKind = pgEnum("approval_kind", approvalKinds);
 export const spanStatuses = ["ok", "error"] as const;
 export type SpanStatus = (typeof spanStatuses)[number];
 export const spanStatus = pgEnum("span_status", spanStatuses);
+
+/** The judge's verdict on one claim (docs/system-design.md §6). */
+export const claimVerdicts = ["supported", "partial", "unsupported"] as const;
+export type ClaimVerdict = (typeof claimVerdicts)[number];
+export const claimVerdict = pgEnum("claim_verdict", claimVerdicts);

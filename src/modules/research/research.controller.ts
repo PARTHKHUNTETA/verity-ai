@@ -32,9 +32,23 @@ export function createResearchController(service: ResearchService) {
     res.json(await service.getTrace(getAuth(req), req.params.runId));
   };
 
+  const getScorecard: RequestHandler<{ runId: string }> = async (req, res) => {
+    res.json(await service.getScorecard(getAuth(req), req.params.runId));
+  };
+
   const cancelRun: RequestHandler<{ runId: string }> = async (req, res) => {
     res.json(await service.cancel(getAuth(req), req.params.runId));
   };
 
-  return { capabilities, listTasks, createTask, getTask, startRun, getRun, getTrace, cancelRun };
+  return {
+    capabilities,
+    listTasks,
+    createTask,
+    getTask,
+    startRun,
+    getRun,
+    getTrace,
+    getScorecard,
+    cancelRun,
+  };
 }

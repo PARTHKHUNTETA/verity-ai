@@ -60,6 +60,7 @@ describe("run traces", () => {
       "extracting",
       "analyzing",
       "synthesizing",
+      "evaluating",
     ]);
     expect(summary.llm.calls).toBeGreaterThanOrEqual(5);
     expect(summary.llm.costUsd).toBe(0);

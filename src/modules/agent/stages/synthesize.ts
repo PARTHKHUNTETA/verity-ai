@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
+import type { DbExecutor } from "../../../infrastructure/database/client.js";
 import {
   claimEvidence,
   claims,
@@ -10,7 +11,14 @@ import {
   subQuestions,
 } from "../../../infrastructure/database/schema/index.js";
 import { extractClaims } from "../citations.js";
-import { buildReportInput, REPORT_INSTRUCTIONS, REPORT_PROMPT_VERSION } from "../prompts/report.js";
+import {
+  buildReportInput,
+  REPORT_INSTRUCTIONS,
+  REPORT_PROMPT_VERSION,
+  REVISION_INSTRUCTIONS,
+  REVISION_PROMPT_VERSION,
+  type RevisionFeedback,
+} from "../prompts/report.js";
 import type { StageContext } from "./context.js";
 
 /**
@@ -18,10 +26,17 @@ import type { StageContext } from "./context.js";
  * table, research gaps, limitations) citing evidence [n]. Afterwards, cited sentences become
  * claims, discovered sources that got cited are marked "used", and each sub-question's
  * coverage is recorded (answered / partial / unanswered).
+ *
+ * Phase 10: the evaluation stage calls this again with the judge's feedback to write version 2
+ * of the report (the revision loop). Returns the new report's id.
  */
-export async function synthesizeStage(ctx: StageContext): Promise<void> {
+export async function synthesizeStage(
+  ctx: StageContext,
+  { version = 1, revision }: { version?: number; revision?: RevisionFeedback } = {},
+): Promise<string> {
   const { db, run } = ctx;
-  await db.delete(reports).where(eq(reports.runId, run.id)); // resume: start clean (cascades to claims)
+  // Resume: start this version clean (cascades to its claims).
+  await db.delete(reports).where(and(eq(reports.runId, run.id), eq(reports.version, version)));
 
   const sqs = await db
     .select()
@@ -48,7 +63,7 @@ export async function synthesizeStage(ctx: StageContext): Promise<void> {
     .values({
       organizationId: run.organizationId,
       runId: run.id,
-      version: 1,
+      version,
       title: ctx.state.title,
     })
     .returning();
@@ -62,7 +77,7 @@ export async function synthesizeStage(ctx: StageContext): Promise<void> {
       const text = content.slice(published);
       const offset = published;
       published = content.length;
-      await ctx.events.publish({ type: "delta", runId: run.id, offset, text });
+      await ctx.events.publish({ type: "delta", runId: run.id, offset, text, version });
     }
   };
   const persist = async () => {
@@ -86,7 +101,7 @@ export async function synthesizeStage(ctx: StageContext): Promise<void> {
   try {
     result = await ctx.llm.streamText({
       model: run.model,
-      instructions: REPORT_INSTRUCTIONS,
+      instructions: revision ? REVISION_INSTRUCTIONS : REPORT_INSTRUCTIONS,
       input: buildReportInput({
         question: ctx.task.question,
         instructions: ctx.task.instructions,
@@ -108,6 +123,7 @@ export async function synthesizeStage(ctx: StageContext): Promise<void> {
                 : `p. ${r.pageStart}`,
         })),
         analysis: ctx.state.analysis,
+        revision,
       }),
       onDelta: (text) => {
         content += text;
@@ -127,15 +143,6 @@ export async function synthesizeStage(ctx: StageContext): Promise<void> {
     result.text,
     new Set(byNumber.keys()),
   );
-  const citedEvidence = new Set(
-    extracted.flatMap((c) => c.citations.map((n) => byNumber.get(n)!.id)),
-  );
-  const citedSourceIds = [
-    ...new Set(
-      rows.filter((r) => citedEvidence.has(r.evidence.id)).map((r) => r.evidence.sourceId),
-    ),
-  ];
-
   await db.transaction(async (tx) => {
     await tx
       .update(reports)
@@ -165,28 +172,17 @@ export async function synthesizeStage(ctx: StageContext): Promise<void> {
         ),
       );
     }
-    if (citedSourceIds.length) {
-      await tx
-        .update(runSources)
-        .set({ status: "used" })
-        .where(and(eq(runSources.runId, run.id), inArray(runSources.sourceId, citedSourceIds)));
-    }
-    // Coverage: answered = a claim cites its evidence; partial = evidence but uncited; else unanswered.
-    for (const sq of sqs) {
-      const sqEvidence = rows.filter((r) => r.evidence.subQuestionId === sq.id);
-      const coverage = sqEvidence.some((r) => citedEvidence.has(r.evidence.id))
-        ? "answered"
-        : sqEvidence.length
-          ? "partial"
-          : "unanswered";
-      await tx.update(subQuestions).set({ coverage }).where(eq(subQuestions.id, sq.id));
-    }
+    await applyReportOutcome(tx, run.id, report!.id);
   });
 
   await ctx.recordStep({
-    stage: "synthesizing",
+    stage: revision ? "evaluating" : "synthesizing",
     type: "llm_call",
-    input: { promptVersion: REPORT_PROMPT_VERSION, evidence: rows.length },
+    input: {
+      promptVersion: revision ? REVISION_PROMPT_VERSION : REPORT_PROMPT_VERSION,
+      evidence: rows.length,
+      ...(revision && { revisionOf: version - 1, flagged: revision.flagged.length }),
+    },
     output: { characters: result.text.length, claims: extracted.length, invalidCitations },
     model: result.model,
     tokensInput: result.usage.inputTokens,
@@ -194,4 +190,50 @@ export async function synthesizeStage(ctx: StageContext): Promise<void> {
     costUsd,
     durationMs: Date.now() - started,
   });
+  return report!.id;
+}
+
+/**
+ * Records what a report version means for the run: discovered sources it cites are "used",
+ * and each sub-question's coverage is answered (a claim cites its evidence), partial (evidence
+ * exists but the report doesn't cite it) or unanswered. Called for the version that is kept.
+ */
+export async function applyReportOutcome(db: DbExecutor, runId: string, reportId: string) {
+  const cited = await db
+    .selectDistinct({ id: evidence.id, sourceId: evidence.sourceId })
+    .from(claimEvidence)
+    .innerJoin(claims, eq(claims.id, claimEvidence.claimId))
+    .innerJoin(evidence, eq(evidence.id, claimEvidence.evidenceId))
+    .where(eq(claims.reportId, reportId));
+  const citedIds = new Set(cited.map((c) => c.id));
+  const citedSourceIds = [...new Set(cited.map((c) => c.sourceId))];
+
+  await db
+    .update(runSources)
+    .set({ status: "acquired" })
+    .where(and(eq(runSources.runId, runId), eq(runSources.status, "used")));
+  if (citedSourceIds.length) {
+    await db
+      .update(runSources)
+      .set({ status: "used" })
+      .where(and(eq(runSources.runId, runId), inArray(runSources.sourceId, citedSourceIds)));
+  }
+
+  const all = await db
+    .select({ id: evidence.id, subQuestionId: evidence.subQuestionId })
+    .from(evidence)
+    .where(eq(evidence.runId, runId));
+  const sqs = await db
+    .select({ id: subQuestions.id })
+    .from(subQuestions)
+    .where(eq(subQuestions.runId, runId));
+  for (const sq of sqs) {
+    const sqEvidence = all.filter((e) => e.subQuestionId === sq.id);
+    const coverage = sqEvidence.some((e) => citedIds.has(e.id))
+      ? "answered"
+      : sqEvidence.length
+        ? "partial"
+        : "unanswered";
+    await db.update(subQuestions).set({ coverage }).where(eq(subQuestions.id, sq.id));
+  }
 }

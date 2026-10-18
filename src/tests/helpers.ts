@@ -63,7 +63,7 @@ export const app = createApp({
 /** Empties every app table between tests (keeps the schema and migration history). */
 export async function resetDatabase(): Promise<void> {
   await db.execute(
-    sql`truncate table trace_spans, approvals, policy_decisions, policies, tool_calls, run_sources, claim_evidence, claims, evidence, source_chunks, collection_sources, sources, collections, reports, agent_steps, research_runs, research_tasks, audit_logs, refresh_tokens, organization_members, users, organizations restart identity cascade`,
+    sql`truncate table trace_spans, feedback, run_scorecards, claim_judgments, approvals, policy_decisions, policies, tool_calls, run_sources, claim_evidence, claims, evidence, source_chunks, collection_sources, sources, collections, reports, agent_steps, research_runs, research_tasks, audit_logs, refresh_tokens, organization_members, users, organizations restart identity cascade`,
   );
   fakeQueue.enqueued.length = 0;
   fakeQueue.ingests.length = 0;

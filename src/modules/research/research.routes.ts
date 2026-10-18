@@ -46,6 +46,12 @@ export function researchRoutes(
     controller.getTrace,
   );
   router.get(
+    "/runs/:runId/scorecard",
+    requirePermission("report:read"),
+    validate({ params: runParamsSchema }),
+    controller.getScorecard,
+  );
+  router.get(
     "/runs/:runId",
     requirePermission("report:read"),
     validate({ params: runParamsSchema }),

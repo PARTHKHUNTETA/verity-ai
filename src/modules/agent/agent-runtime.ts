@@ -26,6 +26,7 @@ import { acquireStage } from "./stages/acquire.js";
 import { analyzeStage } from "./stages/analyze.js";
 import type { DiscoveryDeps, RunConfig, StageContext } from "./stages/context.js";
 import { discoverStage } from "./stages/discover.js";
+import { evaluateStage } from "./stages/evaluate.js";
 import { extractStage } from "./stages/extract.js";
 import { planStage } from "./stages/plan.js";
 import { retrieveStage } from "./stages/retrieve.js";
@@ -36,6 +37,7 @@ import { loadState, saveState } from "./state.js";
  * Agent runtime v3 (Phase 7): runs the research pipeline as a stage machine.
  *
  *   planning → discovering → acquiring → retrieving → extracting → analyzing → synthesizing
+ *   → evaluating (Phase 10: judge the report, revise it once if needed, write the scorecard)
  *
  * After every stage the run state is saved. If the worker dies, pg-boss notices the missing
  * heartbeat and retries the job; the retry resumes here, skipping completed stages.
@@ -104,8 +106,8 @@ export function createAgentRuntime({
     retrieving: retrieveStage,
     extracting: extractStage,
     analyzing: analyzeStage,
-    synthesizing: synthesizeStage,
-    evaluating: null, // Phase 10
+    synthesizing: (ctx) => synthesizeStage(ctx).then(() => {}),
+    evaluating: evaluateStage,
   };
 
   async function publishStatus(runId: string, status: RunStatus, stage: RunStage | null) {
@@ -281,7 +283,7 @@ export function createAgentRuntime({
               .update(researchRuns)
               .set({ status: "completed", completedAt: new Date() })
               .where(eq(researchRuns.id, runId));
-            await publishStatus(runId, "completed", "synthesizing");
+            await publishStatus(runId, "completed", stages.at(-1)!);
             root.setAttributes({ outcome: "completed", steps: state.steps, ...state.usage });
             logger.info(
               { runId, ms: Date.now() - started, usage: state.usage, steps: state.steps },
