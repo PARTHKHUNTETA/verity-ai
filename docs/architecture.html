@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VerityAI Backend — Architecture</title>
+<meta name="generator" content="npm run docs:build (from docs/ARCHITECTURE.md)">
+<style>
+  :root {
+    --ink: #0f172a; --muted: #475569; --subtle: #94a3b8; --line: #e2e8f0;
+    --surface: #ffffff; --canvas: #f8fafc; --brand: #4f46e5; --brand-soft: #eef2ff; --code: #f1f5f9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e2e8f0; --muted: #a8b3c4; --subtle: #64748b; --line: #263042;
+      --surface: #111827; --canvas: #0b1120; --brand: #a5b4fc; --brand-soft: #1e1b4b; --code: #1a2233;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+  body { margin: 0; background: var(--canvas); color: var(--ink);
+    font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); max-width: 1280px; margin: 0 auto; }
+  nav { position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 24px 16px;
+    border-right: 1px solid var(--line); background: var(--surface); }
+  nav .brand { font-weight: 700; font-size: 15px; margin: 0 0 4px; }
+  nav .brand span { color: var(--brand); }
+  nav .tag { color: var(--muted); font-size: 12px; margin: 0 0 16px; }
+  nav ul { list-style: none; margin: 0; padding: 0; }
+  nav li a { display: block; padding: 4px 8px; border-radius: 6px; color: var(--muted);
+    text-decoration: none; font-size: 13px; }
+  nav li a:hover { background: var(--brand-soft); color: var(--ink); }
+  nav li.d3 a { padding-left: 22px; font-size: 12px; }
+  main { padding: 32px 40px 80px; min-width: 0; }
+  h1 { font-size: 28px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 21px; margin: 48px 0 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h3 { font-size: 16px; margin: 28px 0 8px; }
+  h2, h3 { position: relative; }
+  .anchor { position: absolute; left: -18px; color: var(--subtle); text-decoration: none; opacity: 0; }
+  h2:hover .anchor, h3:hover .anchor { opacity: 1; }
+  p, li { color: var(--ink); }
+  a { color: var(--brand); }
+  blockquote { margin: 0 0 16px; padding: 8px 14px; border-left: 3px solid var(--brand);
+    background: var(--brand-soft); border-radius: 0 8px 8px 0; color: var(--muted); }
+  blockquote p { margin: 0; color: inherit; }
+  code { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code);
+    padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 14px 16px; border-radius: 10px; overflow-x: auto;
+    border: 1px solid var(--line); }
+  pre code { background: none; padding: 0; }
+  pre.mermaid { background: var(--surface); text-align: center; white-space: pre; }
+  .table { overflow-x: auto; margin: 12px 0 20px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; background: var(--canvas); white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 28px 0; }
+  .menu { display: none; }
+  @media (max-width: 860px) {
+    .layout { display: block; }
+    nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 16px; }
+    nav ul { display: none; }
+    nav.open ul { display: block; }
+    .menu { display: inline-block; margin-top: 4px; padding: 6px 12px; font: inherit; font-size: 13px;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+    main { padding: 20px 16px 60px; }
+    h1 { font-size: 23px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav id="toc">
+    <p class="brand">Verity<span>AI</span> backend</p>
+    <p class="tag">Architecture</p>
+    <button class="menu" type="button" onclick="document.getElementById('toc').classList.toggle('open')">Contents</button>
+    <ul>
+<li class="d2"><a href="#1-overview">1. Overview</a></li>
+<li class="d3"><a href="#tech-stack">Tech stack</a></li>
+<li class="d2"><a href="#2-architecture">2. Architecture</a></li>
+<li class="d2"><a href="#3-folder-structure">3. Folder structure</a></li>
+<li class="d2"><a href="#4-when-a-request-comes-in">4. When a request comes in</a></li>
+<li class="d3"><a href="#41-the-middleware-chain-srcappts">4.1 The middleware chain (src/app.ts)</a></li>
+<li class="d3"><a href="#42-errors">4.2 Errors</a></li>
+<li class="d3"><a href="#43-example-get-apiv1researchrunsrunid">4.3 Example: GET /api/v1/research/runs/:runId</a></li>
+<li class="d3"><a href="#44-authentication-flow-srcmodulesauth">4.4 Authentication flow (src/modules/auth)</a></li>
+<li class="d2"><a href="#5-a-research-run-end-to-end">5. A research run, end to end</a></li>
+<li class="d3"><a href="#51-stages-srcmodulesagentstages">5.1 Stages (src/modules/agent/stages/)</a></li>
+<li class="d3"><a href="#52-run-control">5.2 Run control</a></li>
+<li class="d2"><a href="#6-tool-calls-and-the-policy-gateway">6. Tool calls and the policy gateway</a></li>
+<li class="d2"><a href="#7-retrieval-and-ingestion">7. Retrieval and ingestion</a></li>
+<li class="d2"><a href="#8-evaluation">8. Evaluation</a></li>
+<li class="d3"><a href="#81-online-every-run-stage-evaluating">8.1 Online (every run, stage evaluating)</a></li>
+<li class="d3"><a href="#82-offline-benchmarks-evaluationoffline">8.2 Offline (benchmarks, evaluation/offline/)</a></li>
+<li class="d2"><a href="#9-database-design">9. Database design</a></li>
+<li class="d3"><a href="#91-conventions">9.1 Conventions</a></li>
+<li class="d3"><a href="#92-identity-and-knowledge">9.2 Identity and knowledge</a></li>
+<li class="d3"><a href="#93-research">9.3 Research</a></li>
+<li class="d3"><a href="#94-governance">9.4 Governance</a></li>
+<li class="d3"><a href="#95-evaluation">9.5 Evaluation</a></li>
+<li class="d3"><a href="#96-observability">9.6 Observability</a></li>
+<li class="d3"><a href="#97-enums">9.7 Enums</a></li>
+<li class="d3"><a href="#98-migrations">9.8 Migrations</a></li>
+<li class="d3"><a href="#99-database-roles">9.9 Database roles</a></li>
+<li class="d2"><a href="#10-background-jobs-and-maintenance">10. Background jobs and maintenance</a></li>
+<li class="d2"><a href="#11-observability">11. Observability</a></li>
+<li class="d2"><a href="#12-security-summary">12. Security summary</a></li>
+<li class="d2"><a href="#13-configuration-srcconfigenvts">13. Configuration (src/config/env.ts)</a></li>
+<li class="d2"><a href="#14-running-it">14. Running it</a></li>
+<li class="d2"><a href="#15-where-to-change-things">15. Where to change things</a></li>
+    </ul>
+  </nav>
+  <main>
+<h1>VerityAI Backend — Architecture</h1>
+<blockquote>
+<p><strong>VerityAI — Evaluated Research Agent</strong> · <em>Research with evidence. Answers with confidence.</em></p>
+</blockquote>
+<p>How the backend works: the processes, what happens when a request comes in, how a research run
+flows through the system, the database design, and where to change things. Everything here
+describes the code in this repository; file paths are relative to the repo root.</p>
+<p>A viewable version of this document is generated with <code>npm run docs:build</code> →
+<code>docs/architecture.html</code> (open it in a browser).</p>
+<hr>
+<h2 id="1-overview"><a class="anchor" href="#1-overview">#</a>1. Overview</h2>
+<p>The backend is a <strong>modular monolith</strong> in TypeScript with <strong>two processes</strong> built from the same code:</p>
+<div class="table"><table><thead><tr><th>Process</th><th>Entry point</th><th>Job</th></tr></thead><tbody><tr><td><strong>API</strong></td><td><code>src/server.ts</code> → <code>src/app.ts</code></td><td>HTTP API under <code>/api/v1</code>: auth, research tasks, sources, reports, evaluations, policies. Streams live run progress (SSE). Never does slow AI work itself.</td></tr>
+<tr><td><strong>Worker</strong></td><td><code>src/worker.ts</code></td><td>Background jobs: research runs (the agent), document ingestion, offline eval runs, maintenance sweeps.</td></tr>
+<tr><td><strong>Both</strong> (optional)</td><td><code>src/all.ts</code></td><td>Runs the API and the worker as two child processes in one container (<code>PROCESS=all</code>), for hosts where they can&#39;t share a disk.</td></tr></tbody></table></div>
+<p>They talk only through <strong>Postgres</strong>: rows, a job queue (pg-boss) and <code>LISTEN/NOTIFY</code> events. No
+Redis, no message broker.</p>
+<h3 id="tech-stack"><a class="anchor" href="#tech-stack">#</a>Tech stack</h3>
+<div class="table"><table><thead><tr><th>Concern</th><th>Choice</th></tr></thead><tbody><tr><td>Runtime</td><td>Node.js 22, TypeScript (strict, ESM)</td></tr>
+<tr><td>HTTP</td><td>Express 5, helmet, cors, express-rate-limit, multer (uploads), cookie-parser</td></tr>
+<tr><td>Validation</td><td>zod 4 (request schemas, env, LLM structured outputs)</td></tr>
+<tr><td>Database</td><td>PostgreSQL 16 + pgvector, Drizzle ORM + drizzle-kit migrations</td></tr>
+<tr><td>Jobs</td><td>pg-boss (queue tables inside Postgres)</td></tr>
+<tr><td>Live updates</td><td>Postgres <code>LISTEN/NOTIFY</code> → Server-Sent Events</td></tr>
+<tr><td>LLM</td><td>OpenAI Responses API (<code>gpt-5-mini</code> by default) behind <code>src/infrastructure/llm</code>; a <code>fake</code> provider for tests</td></tr>
+<tr><td>Search</td><td>Tavily (web), arXiv, Semantic Scholar</td></tr>
+<tr><td>Parsing</td><td>unpdf (PDF), Readability + linkedom (HTML)</td></tr>
+<tr><td>Code sandbox</td><td>QuickJS (WebAssembly)</td></tr>
+<tr><td>Export</td><td>marked + pdfkit (PDF), DejaVu fonts</td></tr>
+<tr><td>Logging / tracing</td><td>pino; an OpenTelemetry-shaped tracer that stores spans in Postgres</td></tr>
+<tr><td>Tests</td><td>Vitest + Supertest against a real Postgres</td></tr></tbody></table></div>
+<hr>
+<h2 id="2-architecture"><a class="anchor" href="#2-architecture">#</a>2. Architecture</h2>
+<pre class="mermaid">flowchart LR
+    Browser[&quot;Browser (React app)&quot;] --&gt;|&quot;/api/v1 JSON, SSE&quot;| Nginx[&quot;nginx (frontend image)&quot;]
+    Nginx --&gt;|proxy /api| API[&quot;API process&lt;br/&gt;Express&quot;]
+    API --&gt;|&quot;rows (Drizzle)&quot;| PG[(&quot;PostgreSQL 16&lt;br/&gt;tables + pgvector&quot;)]
+    API --&gt;|&quot;enqueue jobs&quot;| Q[[&quot;pg-boss queues&lt;br/&gt;research.run · source.ingest · eval.run&quot;]]
+    API --&gt;|LISTEN run_events| PG
+    Q --&gt; Worker[&quot;Worker process&lt;br/&gt;agent runtime&quot;]
+    Worker --&gt;|&quot;rows, spans, NOTIFY&quot;| PG
+    Worker --&gt;|LLM calls| OpenAI[&quot;OpenAI API&quot;]
+    Worker --&gt;|search| Search[&quot;Tavily · arXiv · Semantic Scholar&quot;]
+    Worker --&gt;|&quot;safe fetch (public IPs only)&quot;| Web[&quot;Web pages / PDFs&quot;]
+    API --&gt;|&quot;store uploads&quot;| Disk[(&quot;Upload storage&lt;br/&gt;STORAGE_DIR&quot;)]
+    Worker --&gt;|&quot;read uploads&quot;| Disk</pre>
+<ul>
+<li>The <strong>API</strong> validates, authorizes, stores and enqueues. It answers in milliseconds.</li>
+<li>The <strong>worker</strong> does everything slow or expensive: LLM calls, searching, fetching, parsing,
+embedding, evaluating.</li>
+<li><strong>Postgres</strong> is the single source of truth. Events (<code>NOTIFY</code>) only make the UI live; if one is
+missed, the next snapshot from the database is still correct.</li>
+<li>Uploaded files live on disk (<code>STORAGE_DIR</code>), shared by both processes.</li>
+</ul>
+<hr>
+<h2 id="3-folder-structure"><a class="anchor" href="#3-folder-structure">#</a>3. Folder structure</h2>
+<pre><code class="language-text">src/
+├── server.ts / worker.ts / all.ts   process entry points
+├── app.ts                           Express app: middleware order and route mounting
+├── config/env.ts                    every environment variable, validated with zod at startup
+├── infrastructure/                  technical adapters (no business rules)
+│   ├── database/                    Drizzle client, schema/*.ts (tables), migrations/*.sql
+│   ├── events/run-events.ts         LISTEN/NOTIFY event bus (+ in-memory version for tests)
+│   ├── http/safe-fetch.ts           SSRF-safe downloader
+│   ├── llm/                         OpenAI client, fake client, pricing, structured output
+│   ├── queue/queue.ts               pg-boss setup and queue names
+│   └── storage/file-storage.ts      local-disk file storage
+├── middleware/                      request id, logging, auth, permissions, validation, rate limits, errors
+├── modules/                         one folder per feature (see below)
+├── scripts/                         CLIs: db-setup.ts, eval.ts, build-docs.ts
+├── shared/                          errors, logger, request metadata, db error helpers
+└── tests/                           test helpers and shared setup</code></pre>
+<div class="table"><table><thead><tr><th>Module</th><th>Responsibility</th></tr></thead><tbody><tr><td><code>auth</code></td><td>register, login, refresh-token rotation, logout, <code>/me</code></td></tr>
+<tr><td><code>organizations</code></td><td>organization and members (roles)</td></tr>
+<tr><td><code>research</code></td><td>research tasks and runs: create, list, detail, cancel, SSE stream, trace, scorecard</td></tr>
+<tr><td><code>agent</code></td><td>the agent runtime (stage machine), stages, prompts, run state, budgets, fakes</td></tr>
+<tr><td><code>tools</code></td><td>search providers, discovery, the code sandbox</td></tr>
+<tr><td><code>retrieval</code></td><td>parsing, chunking, ingestion, hybrid search, source acquisition</td></tr>
+<tr><td><code>sources</code></td><td>collections, uploads, documents, chunk viewer, search endpoint</td></tr>
+<tr><td><code>policies</code></td><td>permissions (RBAC), the policy gateway, tool executor, approvals</td></tr>
+<tr><td><code>observability</code></td><td>tracer, traced LLM wrapper, trace summary, metrics, partitions</td></tr>
+<tr><td><code>evaluation</code></td><td>online scorers and judges, scorecards, feedback, offline datasets / eval runs / comparison</td></tr>
+<tr><td><code>reports</code></td><td>report list, versions, Markdown/PDF export with bibliography</td></tr>
+<tr><td><code>audit</code></td><td>audit log writes</td></tr>
+<tr><td><code>health</code></td><td><code>/api/v1/health</code></td></tr></tbody></table></div>
+<p><strong>Module convention:</strong> <code>*.routes.ts</code> (paths, middleware) → <code>*.controller.ts</code> (HTTP in/out) →
+<code>*.service.ts</code> (business rules) → <code>*.repository.ts</code> (SQL via Drizzle). Smaller modules keep the
+handler inside the routes file. Every repository function takes <code>organizationId</code>.</p>
+<hr>
+<h2 id="4-when-a-request-comes-in"><a class="anchor" href="#4-when-a-request-comes-in">#</a>4. When a request comes in</h2>
+<h3 id="41-the-middleware-chain-srcappts"><a class="anchor" href="#41-the-middleware-chain-srcappts">#</a>4.1 The middleware chain (<code>src/app.ts</code>)</h3>
+<pre class="mermaid">flowchart TD
+    A[&quot;Request&quot;] --&gt; B[&quot;requestId&lt;br/&gt;x-request-id on req and response&quot;]
+    B --&gt; C[&quot;requestLogger&lt;br/&gt;pino-http, one line per request&quot;]
+    C --&gt; D[&quot;helmet&lt;br/&gt;security headers, strict CSP&quot;]
+    D --&gt; E{&quot;CORS_ORIGINS set?&quot;}
+    E --&gt;|yes| F[&quot;cors (credentials)&quot;]
+    E --&gt;|no| G
+    F --&gt; G[&quot;express.json (1 MB limit)&quot;]
+    G --&gt; H[&quot;cookieParser&quot;]
+    H --&gt; I[&quot;/api/v1 + apiRateLimit&lt;br/&gt;600 req/min per IP&quot;]
+    I --&gt; J[&quot;module router&quot;]
+    J --&gt; K[&quot;authenticate&lt;br/&gt;Bearer JWT → req.auth (user, org, role from DB)&quot;]
+    K --&gt; L[&quot;requirePermission(action)&lt;br/&gt;RBAC check&quot;]
+    L --&gt; M[&quot;validate({ params, query, body })&lt;br/&gt;zod&quot;]
+    M --&gt; N[&quot;per-user rate limit&lt;br/&gt;(runs, evals, uploads, exports)&quot;]
+    N --&gt; O[&quot;controller → service → repository&quot;]
+    O --&gt; P[(&quot;Postgres&quot;)]
+    O --&gt; R[&quot;JSON response&quot;]
+    J -.-&gt;|&quot;no route&quot;| X[&quot;notFound → 404&quot;]
+    K -.-&gt;|throws| Y[&quot;errorHandler&quot;]
+    L -.-&gt;|throws| Y
+    M -.-&gt;|throws| Y
+    O -.-&gt;|throws| Y</pre>
+<ul>
+<li><strong>Order matters:</strong> the request id comes first so every log line and error response carries it.</li>
+<li>Public routes (<code>/health</code>, <code>/auth/*</code>) skip <code>authenticate</code>.</li>
+<li><code>authenticate</code> verifies the access token and <strong>reloads the membership from the database</strong>, so a
+removed member or a changed role takes effect immediately.</li>
+<li><code>requirePermission</code> maps the role to allowed actions (<code>src/modules/policies/permissions.ts</code>).</li>
+<li>Uploads add <code>multer</code> (in memory, ≤ <code>MAX_UPLOAD_MB</code>) after validation.</li>
+</ul>
+<h3 id="42-errors"><a class="anchor" href="#42-errors">#</a>4.2 Errors</h3>
+<p>All errors end in <code>src/middleware/error-handler.ts</code> and leave as one JSON shape:</p>
+<pre><code class="language-json">{ &quot;error&quot;: { &quot;code&quot;: &quot;NOT_FOUND&quot;, &quot;message&quot;: &quot;Run not found&quot;, &quot;details&quot;: null, &quot;requestId&quot;: &quot;…&quot; } }</code></pre>
+<div class="table"><table><thead><tr><th>Thrown</th><th>Status</th><th>Code</th></tr></thead><tbody><tr><td><code>ValidationError</code>, zod errors</td><td>400</td><td><code>VALIDATION_ERROR</code></td></tr>
+<tr><td><code>UnauthorizedError</code></td><td>401</td><td><code>UNAUTHORIZED</code></td></tr>
+<tr><td><code>ForbiddenError</code></td><td>403</td><td><code>FORBIDDEN</code></td></tr>
+<tr><td><code>NotFoundError</code> (also for other organizations&#39; ids)</td><td>404</td><td><code>NOT_FOUND</code></td></tr>
+<tr><td><code>ConflictError</code></td><td>409</td><td><code>CONFLICT</code></td></tr>
+<tr><td>upload too large (multer)</td><td>413</td><td><code>FILE_TOO_LARGE</code></td></tr>
+<tr><td><code>TooManyRequestsError</code></td><td>429</td><td><code>RATE_LIMITED</code></td></tr>
+<tr><td>invalid JSON body</td><td>400</td><td><code>INVALID_JSON</code></td></tr>
+<tr><td>anything else</td><td>500</td><td><code>INTERNAL_ERROR</code> (details logged, never sent)</td></tr></tbody></table></div>
+<h3 id="43-example-get-apiv1researchrunsrunid"><a class="anchor" href="#43-example-get-apiv1researchrunsrunid">#</a>4.3 Example: <code>GET /api/v1/research/runs/:runId</code></h3>
+<pre class="mermaid">sequenceDiagram
+    participant B as Browser
+    participant M as Middleware
+    participant C as research.controller
+    participant S as research.service
+    participant R as research.repository
+    participant DB as Postgres
+    B-&gt;&gt;M: GET /api/v1/research/runs/:id (Bearer token)
+    M-&gt;&gt;M: requestId, logger, helmet, rate limit
+    M-&gt;&gt;DB: authenticate: load membership
+    M-&gt;&gt;M: requirePermission(&quot;report:read&quot;), validate params (uuid)
+    M-&gt;&gt;C: getRun
+    C-&gt;&gt;S: getRunDetail(auth, runId)
+    S-&gt;&gt;R: findRun(orgId, runId)
+    R-&gt;&gt;DB: SELECT … WHERE id = $1 AND organization_id = $2
+    alt not in this organization
+        S--&gt;&gt;B: 404 NOT_FOUND
+    else found
+        S-&gt;&gt;R: report, citations, sources, plan, steps, tool calls, approvals, decisions, scorecard
+        R-&gt;&gt;DB: parallel SELECTs (all filtered by organization_id)
+        S--&gt;&gt;C: RunDetail DTO
+        C--&gt;&gt;B: 200 JSON
+    end</pre>
+<h3 id="44-authentication-flow-srcmodulesauth"><a class="anchor" href="#44-authentication-flow-srcmodulesauth">#</a>4.4 Authentication flow (<code>src/modules/auth</code>)</h3>
+<pre class="mermaid">sequenceDiagram
+    participant B as Browser
+    participant A as API /auth
+    participant DB as Postgres
+    B-&gt;&gt;A: POST /auth/login {email, password}
+    A-&gt;&gt;DB: user by email, verify argon2id hash
+    A-&gt;&gt;DB: insert refresh token (hash only, new family)
+    A--&gt;&gt;B: access JWT (15 min, kept in memory) + refresh cookie (httpOnly, SameSite=strict, /api/v1/auth)
+    Note over B: later, the access token expires
+    B-&gt;&gt;A: POST /auth/refresh (cookie)
+    A-&gt;&gt;DB: find token by hash, revoke it (&quot;rotated&quot;), insert the next one in the same family
+    A--&gt;&gt;B: new access JWT + new refresh cookie
+    Note over A,DB: a token that was already rotated comes back → revoke the whole family (&quot;reuse_detected&quot;), audit log</pre>
+<p>Login and register: 10 attempts per 15 minutes per IP; refresh and logout: 60 per 15 minutes.</p>
+<hr>
+<h2 id="5-a-research-run-end-to-end"><a class="anchor" href="#5-a-research-run-end-to-end">#</a>5. A research run, end to end</h2>
+<p>Starting research is fast; the work happens in the worker; progress streams back over SSE.</p>
+<pre class="mermaid">sequenceDiagram
+    participant B as Browser
+    participant API as API
+    participant DB as Postgres
+    participant Q as pg-boss
+    participant W as Worker (agent runtime)
+    participant LLM as OpenAI / search
+    B-&gt;&gt;API: POST /research/tasks {question, discover}
+    API-&gt;&gt;DB: insert research_task + research_run (status queued, config snapshot)
+    API-&gt;&gt;Q: enqueue research.run {runId}
+    API--&gt;&gt;B: 201 {task, run}
+    B-&gt;&gt;API: GET /research/runs/:id/stream (SSE)
+    API-&gt;&gt;DB: LISTEN run_events, then send &quot;snapshot&quot;
+    Q-&gt;&gt;W: job research.run
+    W-&gt;&gt;DB: claim run (queued → running)
+    loop each stage
+        W-&gt;&gt;DB: stage = X, NOTIFY status
+        DB--&gt;&gt;API: event
+        API--&gt;&gt;B: &quot;status&quot; + fresh &quot;snapshot&quot;
+        W-&gt;&gt;LLM: model / tool calls (through the policy gateway)
+        W-&gt;&gt;DB: rows (sub_questions, evidence, …), agent_steps, trace spans, state checkpoint
+    end
+    W-&gt;&gt;DB: report text in chunks, NOTIFY &quot;delta&quot; {offset, text, version}
+    DB--&gt;&gt;API: delta events
+    API--&gt;&gt;B: &quot;delta&quot; (the answer streams in)
+    W-&gt;&gt;DB: scorecard, status completed, NOTIFY
+    API--&gt;&gt;B: final &quot;snapshot&quot; + &quot;done&quot;</pre>
+<h3 id="51-stages-srcmodulesagentstages"><a class="anchor" href="#51-stages-srcmodulesagentstages">#</a>5.1 Stages (<code>src/modules/agent/stages/</code>)</h3>
+<div class="table"><table><thead><tr><th>#</th><th>Stage</th><th>File</th><th>What it does</th><th>Writes</th></tr></thead><tbody><tr><td>1</td><td>planning</td><td><code>plan.ts</code></td><td>LLM breaks the question into 2–4 sub-questions + search queries (<code>plan-v1</code>)</td><td><code>sub_questions</code></td></tr>
+<tr><td>2</td><td>discovering*</td><td><code>discover.ts</code></td><td>web + academic search per sub-question, ranked</td><td><code>run_sources</code> (candidate)</td></tr>
+<tr><td>3</td><td>acquiring*</td><td><code>acquire.ts</code></td><td>safe fetch, parse, dedupe, index the best sources</td><td><code>sources</code>, <code>source_chunks</code>, <code>run_sources</code></td></tr>
+<tr><td>4</td><td>retrieving</td><td><code>retrieve.ts</code></td><td>hybrid search over readable collections + the run&#39;s sources</td><td>run state (passages)</td></tr>
+<tr><td>5</td><td>extracting</td><td><code>extract.ts</code></td><td>LLM quotes evidence; quotes must appear verbatim (<code>extract-v1</code>)</td><td><code>evidence</code></td></tr>
+<tr><td>6</td><td>analyzing</td><td><code>analyze.ts</code></td><td>tool loop with sandboxed <code>run_code</code> (<code>analyze-v1</code>)</td><td><code>tool_calls</code>, run state (notes)</td></tr>
+<tr><td>7</td><td>synthesizing</td><td><code>synthesize.ts</code></td><td>streams the cited report (<code>report-v1</code>)</td><td><code>reports</code>, <code>claims</code>, <code>claim_evidence</code></td></tr>
+<tr><td>8</td><td>evaluating</td><td><code>evaluate.ts</code></td><td>judges claims, scores, revises once if &lt; 90 % supported</td><td><code>claim_judgments</code>, <code>run_scorecards</code></td></tr></tbody></table></div>
+<p>* only when the run has discovery on.</p>
+<h3 id="52-run-control"><a class="anchor" href="#52-run-control">#</a>5.2 Run control</h3>
+<ul>
+<li><strong>State and resume:</strong> after every stage the runtime saves <code>research_runs.state</code> (completed
+stages, step count, usage, passages). The <code>research.run</code> queue has a 60 s heartbeat and one
+retry; if a worker dies, the retry resumes from the last completed stage.</li>
+<li><strong>Budgets</strong> (<code>agent/budget.ts</code>): max steps (60), tokens (400k), cost ($1), time (10 min) by
+default; the org policy and the run config can change them. Out of budget either fails the run
+or asks for approval (policy <code>onExceed</code>).</li>
+<li><strong>Cancel:</strong> <code>POST /research/runs/:id/cancel</code> sets the status and publishes an event; the worker
+aborts the in-flight LLM call.</li>
+<li><strong>Approval pause:</strong> a tool call that needs approval stores an <code>approvals</code> row and the run goes
+to <code>awaiting_approval</code>; deciding re-queues it and it continues where it stopped.</li>
+<li><strong>Stalled runs:</strong> a sweep marks runs with no checkpoint for 30 minutes as failed (<code>STALLED</code>).</li>
+<li><strong>SSE protocol</strong> (<code>research/research.sse.ts</code>): <code>snapshot</code> (full run detail), <code>status</code>,
+<code>delta {offset, text, version}</code> (version 2 = the revision), <code>done</code>. The API subscribes before
+reading the first snapshot, so no event is lost in between.</li>
+</ul>
+<hr>
+<h2 id="6-tool-calls-and-the-policy-gateway"><a class="anchor" href="#6-tool-calls-and-the-policy-gateway">#</a>6. Tool calls and the policy gateway</h2>
+<p>Stages never call tools directly: every call goes through <code>ctx.tools.call</code> →
+<code>policies/executor.ts</code> → <code>policies/policy-gateway.ts</code>.</p>
+<pre class="mermaid">flowchart TD
+    A[&quot;Stage wants a tool&lt;br/&gt;search · fetch · rag · run_code&quot;] --&gt; B{&quot;Same call already done&lt;br/&gt;in this run? (args_hash)&quot;}
+    B --&gt;|succeeded| C[&quot;Return stored result&quot;]
+    B --&gt;|waiting for approval| D{&quot;Approval decided?&quot;}
+    D --&gt;|approved| RUN
+    D --&gt;|&quot;rejected / expired&quot;| DENY
+    D --&gt;|pending| PAUSE
+    B --&gt;|new| E[&quot;Gateway checks, in order:&lt;br/&gt;tool enabled → arguments valid → user permission&lt;br/&gt;→ org rules (domains, per-run limits) → budget&quot;]
+    E --&gt; F[&quot;Store tool_call + policy_decision&quot;]
+    F --&gt; G{&quot;Decision&quot;}
+    G --&gt;|allow| RUN[&quot;Run with timeout and retries&lt;br/&gt;(span tool.*)&quot;]
+    G --&gt;|deny| DENY[&quot;Skip, return the reason to the stage&quot;]
+    G --&gt;|require approval| H{&quot;Unattended run?&lt;br/&gt;(offline eval)&quot;}
+    H --&gt;|yes| DENY
+    H --&gt;|no| PAUSE[&quot;Create approval, pause the run&quot;]</pre>
+<p>Platform-wide domain rules (<code>BLOCKED_DOMAINS</code>, <code>ALLOWED_DOMAINS</code>) apply on top of each
+organization&#39;s policy (<code>policies</code> table, versioned).</p>
+<hr>
+<h2 id="7-retrieval-and-ingestion"><a class="anchor" href="#7-retrieval-and-ingestion">#</a>7. Retrieval and ingestion</h2>
+<pre class="mermaid">flowchart LR
+    U[&quot;Upload&lt;br/&gt;POST /collections/:id/sources&quot;] --&gt; S1[&quot;store file&lt;br/&gt;(SHA-256 dedupe)&quot;]
+    S1 --&gt; J[&quot;source.ingest job&quot;]
+    D[&quot;Discovery (acquiring stage)&quot;] --&gt; F[&quot;safe fetch&quot;] --&gt; P
+    J --&gt; P[&quot;parse&lt;br/&gt;PDF pages · HTML Readability · text&quot;]
+    P --&gt; C[&quot;chunk&lt;br/&gt;~800 tokens with overlap&quot;]
+    C --&gt; E[&quot;embed&lt;br/&gt;text-embedding-3-small&quot;]
+    E --&gt; T[(&quot;source_chunks&lt;br/&gt;vector + tsvector&quot;)]
+    Q[&quot;Query&quot;] --&gt; V[&quot;vector search&lt;br/&gt;HNSW cosine&quot;]
+    Q --&gt; K[&quot;full-text search&lt;br/&gt;GIN tsvector&quot;]
+    V --&gt; RRF[&quot;reciprocal rank fusion&quot;]
+    K --&gt; RRF
+    T --&gt; V
+    T --&gt; K
+    RRF --&gt; R[&quot;ranked passages&quot;]</pre>
+<ul>
+<li><strong>Safe fetch</strong> (<code>infrastructure/http/safe-fetch.ts</code>): http(s) only, ports 80/443, DNS resolved
+and every address checked (no private, loopback, link-local or metadata ranges), connection
+pinned to the checked IP, every redirect re-checked (max 5), size and time limits.</li>
+<li><strong>Dedupe:</strong> by content hash and canonical URL per organization; the same document is stored
+and embedded once and linked to several collections.</li>
+<li><strong>Access:</strong> a run only searches the collections its creator could read when it started
+(decided by the API and stored in the run config).</li>
+</ul>
+<hr>
+<h2 id="8-evaluation"><a class="anchor" href="#8-evaluation">#</a>8. Evaluation</h2>
+<h3 id="81-online-every-run-stage-evaluating"><a class="anchor" href="#81-online-every-run-stage-evaluating">#</a>8.1 Online (every run, stage <code>evaluating</code>)</h3>
+<ol>
+<li><strong>Claim judge</strong> (<code>evaluation/prompts/claim-judge.ts</code>): each cited sentence vs. only the quotes
+it cites → supported / partial / unsupported, per-citation verdicts, rationale.</li>
+<li><strong>Task judge</strong>: how completely the report does what was asked.</li>
+<li><strong>Deterministic scorers</strong> (<code>evaluation/scorers/</code>): citation validity, coverage, source
+reliability, contradiction handling, policy compliance.</li>
+<li><strong>Revision loop:</strong> claim support &lt; 90 % → rewrite once with the flagged claims (<code>revise-v1</code>),
+judge again, keep the better version (the other is <code>superseded</code>).</li>
+<li><strong>Scorecard</strong> → <code>run_scorecards</code>; readers can rate reports and claims (<code>feedback</code>).</li>
+</ol>
+<h3 id="82-offline-benchmarks-evaluationoffline"><a class="anchor" href="#82-offline-benchmarks-evaluationoffline">#</a>8.2 Offline (benchmarks, <code>evaluation/offline/</code>)</h3>
+<ul>
+<li>Datasets of cases (question, required points, expected/forbidden sources, forbidden content,
+category). <code>POST /evals/datasets/starter</code> installs a 25-case benchmark with fixture documents.</li>
+<li><code>POST /evals/runs</code> freezes a config (model, prompt versions, policy version, top K, discovery,
+revision, collections) and enqueues <code>eval.run</code>. The runner executes each case through the
+same agent runtime, <strong>unattended</strong>, then scores it (<code>case-scorers.ts</code>). Red-team cases are gated
+on security checks only.</li>
+<li>Summaries and comparisons (<code>summary.ts</code>); the CLI <code>npm run eval</code> runs the same in-process for CI.</li>
+</ul>
+<hr>
+<h2 id="9-database-design"><a class="anchor" href="#9-database-design">#</a>9. Database design</h2>
+<h3 id="91-conventions"><a class="anchor" href="#91-conventions">#</a>9.1 Conventions</h3>
+<ul>
+<li><strong>Ids:</strong> UUID v7 (time-ordered) generated in the app (<code>schema/columns.ts</code>).</li>
+<li><strong>Tenancy:</strong> every tenant-owned table has <code>organization_id</code>; every query filters by it.</li>
+<li><strong>Timestamps:</strong> <code>created_at</code> / <code>updated_at</code> as <code>timestamptz</code>.</li>
+<li><strong>Naming:</strong> snake_case in SQL, camelCase in TypeScript (Drizzle <code>casing: &quot;snake_case&quot;</code>).</li>
+<li><strong>Deletes:</strong> cascades from parent to children; soft delete (<code>deleted_at</code>) only on <code>sources</code>,
+<code>collections</code> and <code>research_tasks</code>.</li>
+<li><strong>Schema source:</strong> <code>src/infrastructure/database/schema/*.ts</code>; migrations generated with
+<code>npm run db:generate</code> into <code>migrations/</code>, applied with <code>npm run db:migrate</code> or <code>npm run db:setup</code>.</li>
+</ul>
+<h3 id="92-identity-and-knowledge"><a class="anchor" href="#92-identity-and-knowledge">#</a>9.2 Identity and knowledge</h3>
+<pre class="mermaid">erDiagram
+    organizations ||--o{ organization_members : has
+    users ||--o{ organization_members : &quot;belongs via&quot;
+    users ||--o{ refresh_tokens : holds
+    organizations ||--o{ collections : owns
+    organizations ||--o{ sources : owns
+    collections ||--o{ collection_sources : contains
+    sources ||--o{ collection_sources : &quot;listed in&quot;
+    sources ||--o{ source_chunks : &quot;split into&quot;</pre>
+<div class="table"><table><thead><tr><th>Table</th><th>Purpose</th><th>Key columns / indexes</th></tr></thead><tbody><tr><td><code>organizations</code></td><td>tenants</td><td><code>slug</code> unique, <code>settings</code> jsonb</td></tr>
+<tr><td><code>users</code></td><td>accounts</td><td><code>email</code> citext unique, <code>password_hash</code> (argon2id)</td></tr>
+<tr><td><code>organization_members</code></td><td>user ↔ org with a role</td><td><code>role</code> (owner, admin, researcher, viewer); unique (org, user)</td></tr>
+<tr><td><code>refresh_tokens</code></td><td>rotating sessions</td><td><code>token_hash</code> unique, <code>family_id</code>, <code>revoked_reason</code></td></tr>
+<tr><td><code>collections</code></td><td>groups of documents</td><td><code>visibility</code> (private, organization)</td></tr>
+<tr><td><code>sources</code></td><td>documents: uploads, web pages, papers</td><td><code>type</code>, <code>status</code>, <code>content_hash</code> unique per org, <code>canonical_url</code> unique per org, <code>doi</code>, <code>authors</code>, <code>reliability_score</code></td></tr>
+<tr><td><code>source_chunks</code></td><td>~800-token pieces</td><td><code>embedding vector(1536)</code> <strong>HNSW</strong> (cosine), <code>tsv</code> generated <strong>GIN</strong>, <code>embedding_model</code>, pages</td></tr>
+<tr><td><code>collection_sources</code></td><td>collection ↔ source</td><td>primary key (collection, source)</td></tr></tbody></table></div>
+<h3 id="93-research"><a class="anchor" href="#93-research">#</a>9.3 Research</h3>
+<pre class="mermaid">erDiagram
+    research_tasks ||--o{ research_runs : &quot;run as&quot;
+    research_runs ||--o{ sub_questions : plans
+    research_runs ||--o{ run_sources : discovers
+    research_runs ||--o{ evidence : collects
+    research_runs ||--o{ agent_steps : records
+    research_runs ||--o{ tool_calls : makes
+    research_runs ||--o{ reports : produces
+    reports ||--o{ claims : contains
+    claims ||--o{ claim_evidence : cites
+    evidence ||--o{ claim_evidence : &quot;cited by&quot;
+    sources ||--o{ evidence : &quot;quoted in&quot;</pre>
+<div class="table"><table><thead><tr><th>Table</th><th>Purpose</th><th>Key columns</th></tr></thead><tbody><tr><td><code>research_tasks</code></td><td>the question as asked</td><td><code>question</code>, <code>instructions</code>, <code>origin</code> (user, eval)</td></tr>
+<tr><td><code>research_runs</code></td><td>one execution of the agent</td><td><code>status</code>, <code>stage</code>, <code>config</code> (collections, discovery, budget, eval), <code>model</code>, <code>prompt_version</code>, <code>state</code> (checkpoint), tokens, <code>cost_usd</code></td></tr>
+<tr><td><code>sub_questions</code></td><td>the plan</td><td><code>position</code>, <code>search_queries[]</code>, <code>coverage</code></td></tr>
+<tr><td><code>run_sources</code></td><td>sources found by search and what happened to them</td><td><code>status</code> (candidate, acquired, used, rejected, blocked), <code>reason</code>, <code>provider</code></td></tr>
+<tr><td><code>evidence</code></td><td>verbatim quotes, cited as <code>[rank]</code></td><td><code>quote</code>, <code>stance</code>, <code>confidence</code>, <code>chunk_id</code>, unique (run, rank)</td></tr>
+<tr><td><code>agent_steps</code></td><td>every LLM call / tool call / observation</td><td><code>seq</code>, <code>stage</code>, <code>type</code>, input/output jsonb, tokens, cost</td></tr>
+<tr><td><code>tool_calls</code></td><td>tool calls with result</td><td><code>tool</code>, <code>args</code>, <code>args_hash</code> (idempotency), <code>status</code>, <code>result</code></td></tr>
+<tr><td><code>reports</code></td><td>the answer, versioned</td><td><code>version</code>, <code>status</code> (draft, final, superseded), <code>content_md</code></td></tr>
+<tr><td><code>claims</code></td><td>cited sentences</td><td><code>position</code>, <code>section</code>, <code>text</code></td></tr>
+<tr><td><code>claim_evidence</code></td><td>the citation link</td><td>(claim, evidence), <code>citation_number</code></td></tr></tbody></table></div>
+<h3 id="94-governance"><a class="anchor" href="#94-governance">#</a>9.4 Governance</h3>
+<div class="table"><table><thead><tr><th>Table</th><th>Purpose</th><th>Key columns</th></tr></thead><tbody><tr><td><code>policies</code></td><td>versioned agent policy per org</td><td><code>version</code>, <code>is_active</code> (one active per org), <code>rules</code> jsonb</td></tr>
+<tr><td><code>policy_decisions</code></td><td>the gateway&#39;s verdict on every tool call</td><td><code>decision</code>, <code>matched_rule</code>, <code>reason</code>, <code>checks</code></td></tr>
+<tr><td><code>approvals</code></td><td>human decisions the agent waits for</td><td><code>kind</code> (tool_call, budget), <code>status</code>, <code>expires_at</code>, decided by/at</td></tr>
+<tr><td><code>audit_logs</code></td><td>security-relevant actions</td><td><code>action</code>, actor, resource, ip, user agent</td></tr></tbody></table></div>
+<h3 id="95-evaluation"><a class="anchor" href="#95-evaluation">#</a>9.5 Evaluation</h3>
+<pre class="mermaid">erDiagram
+    claims ||--o{ claim_judgments : &quot;judged by&quot;
+    research_runs ||--o| run_scorecards : &quot;scored in&quot;
+    reports ||--o{ feedback : receives
+    eval_datasets ||--o{ eval_cases : contains
+    eval_datasets ||--o{ eval_runs : &quot;run as&quot;
+    eval_runs ||--o{ eval_results : produces
+    eval_cases ||--o{ eval_results : &quot;scored in&quot;
+    research_runs ||--o| eval_results : &quot;executes case&quot;</pre>
+<div class="table"><table><thead><tr><th>Table</th><th>Purpose</th><th>Key columns</th></tr></thead><tbody><tr><td><code>claim_judgments</code></td><td>judge verdict per claim</td><td><code>verdict</code>, <code>citation_accurate</code>, <code>citations</code> (per-citation), <code>rationale</code>, judge model and prompt version</td></tr>
+<tr><td><code>run_scorecards</code></td><td>online scorecard per run</td><td>the metrics, <code>policy_compliant</code>, <code>passed</code>, <code>extra</code> (counts, flags, sources, revision)</td></tr>
+<tr><td><code>feedback</code></td><td>thumbs on reports / claims</td><td><code>rating</code> ±1; unique (user, report, claim) nulls not distinct</td></tr>
+<tr><td><code>eval_datasets</code></td><td>benchmarks</td><td><code>name</code> unique per org, <code>collection_id</code></td></tr>
+<tr><td><code>eval_cases</code></td><td>questions with expectations</td><td>required points, expected / forbidden sources, forbidden content, <code>category</code></td></tr>
+<tr><td><code>eval_runs</code></td><td>one benchmark execution</td><td>frozen <code>config</code>, <code>status</code>, <code>summary</code></td></tr>
+<tr><td><code>eval_results</code></td><td>per-case outcome</td><td><code>scores</code>, <code>passed</code>, <code>failures[]</code>, <code>details</code> (warnings, point verdicts)</td></tr></tbody></table></div>
+<h3 id="96-observability"><a class="anchor" href="#96-observability">#</a>9.6 Observability</h3>
+<p><code>trace_spans</code> holds every span (trace id = run id): name, parent, attributes (model, tokens,
+cost, tool, decision), status, timings. It is <strong>partitioned by month</strong> on <code>start_time</code> (hand-edited
+migration 0008); the worker creates upcoming months and drops months older than 30 days.</p>
+<h3 id="97-enums"><a class="anchor" href="#97-enums">#</a>9.7 Enums</h3>
+<p><code>member_role</code>, <code>token_revoke_reason</code>, <code>run_status</code>, <code>run_stage</code>, <code>step_type</code>, <code>report_status</code>,
+<code>collection_visibility</code>, <code>source_type</code>, <code>source_status</code>, <code>run_source_status</code>, <code>coverage_status</code>,
+<code>evidence_stance</code>, <code>tool_call_status</code>, <code>policy_decision</code>, <code>approval_status</code>, <code>approval_kind</code>,
+<code>span_status</code>, <code>claim_verdict</code>, <code>eval_run_status</code>, <code>task_origin</code> (all in <code>schema/enums.ts</code>).</p>
+<h3 id="98-migrations"><a class="anchor" href="#98-migrations">#</a>9.8 Migrations</h3>
+<div class="table"><table><thead><tr><th>#</th><th>File</th><th>Adds</th></tr></thead><tbody><tr><td>0000</td><td><code>enable_extensions</code></td><td><code>vector</code>, <code>citext</code></td></tr>
+<tr><td>0001</td><td><code>identity_tables</code></td><td>organizations, users</td></tr>
+<tr><td>0002</td><td><code>auth_and_audit</code></td><td>organization members, refresh tokens, audit logs</td></tr>
+<tr><td>0003</td><td><code>research_runs</code></td><td>research tasks, runs, agent steps, reports</td></tr>
+<tr><td>0004</td><td><code>knowledge_base</code></td><td>collections, sources, chunks (vector + generated tsvector), evidence, claims, claim ↔ evidence</td></tr>
+<tr><td>0005</td><td><code>run_sources</code></td><td>discovered sources per run; <code>sources.fetched_at</code></td></tr>
+<tr><td>0006</td><td><code>pipeline</code></td><td>sub-questions, tool calls; evidence stance/confidence/note; run <code>state</code>; PDF links and metadata on run sources</td></tr>
+<tr><td>0007</td><td><code>governance</code></td><td>policies, policy decisions, approvals; tool call <code>stage</code> and <code>args_hash</code></td></tr>
+<tr><td>0008</td><td><code>trace_spans</code></td><td>partitioned spans (hand-edited)</td></tr>
+<tr><td>0009</td><td><code>online_evaluation</code></td><td>claim judgments, scorecards, feedback</td></tr>
+<tr><td>0010</td><td><code>offline_evaluation</code></td><td>eval datasets, cases, runs, results; task origin</td></tr></tbody></table></div>
+<p>Rule: never edit an applied migration; add a new one.</p>
+<h3 id="99-database-roles"><a class="anchor" href="#99-database-roles">#</a>9.9 Database roles</h3>
+<p><code>deploy/db-roles.sql</code> creates two roles: <code>verity_migrator</code> owns the schema (migrations, pg-boss
+install, partitions) and <code>verity_app</code> can only read and write rows. In production the API and
+worker connect as <code>verity_app</code> (<code>DATABASE_URL</code>); <code>npm run db:setup</code> and partition maintenance use
+<code>MIGRATION_DATABASE_URL</code>.</p>
+<hr>
+<h2 id="10-background-jobs-and-maintenance"><a class="anchor" href="#10-background-jobs-and-maintenance">#</a>10. Background jobs and maintenance</h2>
+<div class="table"><table><thead><tr><th>Queue</th><th>Producer</th><th>Consumer</th><th>Concurrency</th><th>Retries</th><th>Notes</th></tr></thead><tbody><tr><td><code>research.run</code></td><td><code>POST /research/tasks</code>, re-run, approval decided</td><td><code>agentRuntime.runResearch</code></td><td>4</td><td>1 (resumes)</td><td>heartbeat 60 s, expires after 15 min</td></tr>
+<tr><td><code>source.ingest</code></td><td>uploads, re-ingestion</td><td><code>ingestion.ingestSource</code></td><td>2</td><td>2 (backoff)</td><td>idempotent: replaces a source&#39;s chunks</td></tr>
+<tr><td><code>eval.run</code></td><td><code>POST /evals/runs</code></td><td><code>evalRunner.execute</code></td><td>1</td><td>1 (resumes)</td><td>heartbeat 60 s, expires after 6 h</td></tr></tbody></table></div>
+<p>Periodic work in <code>src/worker.ts</code>:</p>
+<div class="table"><table><thead><tr><th>Every</th><th>Task</th></tr></thead><tbody><tr><td>5 min</td><td>expire stale approval requests; mark runs stalled for 30 min as failed</td></tr>
+<tr><td>6 h (and at start)</td><td>create the next trace partitions, drop expired ones</td></tr></tbody></table></div>
+<hr>
+<h2 id="11-observability"><a class="anchor" href="#11-observability">#</a>11. Observability</h2>
+<ul>
+<li><code>modules/observability/tracer.ts</code>: <code>inSpan</code> starts a root span (<code>run</code>, one per attempt),
+<code>withSpan</code> nests under the current span via <code>AsyncLocalStorage</code>, so any code inside a run is
+traced without passing span objects around. Spans are buffered and written in batches.</li>
+<li>Span names: <code>run</code>, <code>stage.&lt;stage&gt;</code>, <code>llm.&lt;method&gt;</code> (model, tokens, cost, time to first token),
+<code>tool.&lt;name&gt;</code>, <code>policy.check</code>, <code>parse</code>, <code>ingest.index</code>, <code>llm.embed</code>.</li>
+<li><code>GET /research/runs/:id/trace</code> returns the spans plus a summary (time and cost per stage,
+slowest operations); <code>GET /observability/metrics?days=7|30|90</code> aggregates latency
+percentiles, tool errors, denials, cost and failures.</li>
+<li>Logs: pino JSON (pretty in development), one line per request with the request id.</li>
+</ul>
+<hr>
+<h2 id="12-security-summary"><a class="anchor" href="#12-security-summary">#</a>12. Security summary</h2>
+<div class="table"><table><thead><tr><th>Area</th><th>Control</th><th>Where</th></tr></thead><tbody><tr><td>Authentication</td><td>argon2id, 15-min JWT, rotating httpOnly refresh cookie with reuse detection</td><td><code>modules/auth</code></td></tr>
+<tr><td>Authorization</td><td>RBAC on every route</td><td><code>policies/permissions.ts</code>, <code>middleware/require-permission.ts</code></td></tr>
+<tr><td>Tenancy</td><td><code>organization_id</code> filter in every repository; foreign ids → 404</td><td>repositories</td></tr>
+<tr><td>Agent actions</td><td>policy gateway on every tool call, approvals, budgets</td><td><code>modules/policies</code></td></tr>
+<tr><td>SSRF</td><td>safe fetcher</td><td><code>infrastructure/http/safe-fetch.ts</code></td></tr>
+<tr><td>Code execution</td><td>QuickJS sandbox, no network or filesystem, limits</td><td><code>tools/code.tool.ts</code></td></tr>
+<tr><td>Prompt injection</td><td>documents wrapped as untrusted data, verbatim quote check, red-team evals</td><td>prompts, <code>stages/extract.ts</code></td></tr>
+<tr><td>HTTP</td><td>helmet, CORS allowlist, body limits, rate limits</td><td><code>app.ts</code>, <code>middleware/rate-limit.ts</code></td></tr>
+<tr><td>Database</td><td>least-privilege roles</td><td><code>deploy/db-roles.sql</code></td></tr>
+<tr><td>Secrets</td><td>env only, validated; production refuses fake provider / example secrets</td><td><code>config/env.ts</code></td></tr></tbody></table></div>
+<p>The full review with red-team results is <code>docs/security-review.md</code> in the project documentation.</p>
+<hr>
+<h2 id="13-configuration-srcconfigenvts"><a class="anchor" href="#13-configuration-srcconfigenvts">#</a>13. Configuration (<code>src/config/env.ts</code>)</h2>
+<div class="table"><table><thead><tr><th>Group</th><th>Variables (default)</th></tr></thead><tbody><tr><td>Server</td><td><code>NODE_ENV</code> (development), <code>PORT</code> (4000), <code>LOG_LEVEL</code> (info), <code>CORS_ORIGINS</code> (empty)</td></tr>
+<tr><td>Database</td><td><code>DATABASE_URL</code> (required), <code>MIGRATION_DATABASE_URL</code> (optional, schema owner)</td></tr>
+<tr><td>Auth</td><td><code>JWT_SECRET</code> (required, ≥ 32 chars), <code>ACCESS_TOKEN_TTL_SECONDS</code> (900), <code>REFRESH_TOKEN_TTL_DAYS</code> (30)</td></tr>
+<tr><td>Storage</td><td><code>STORAGE_DIR</code> (storage), <code>MAX_UPLOAD_MB</code> (25)</td></tr>
+<tr><td>Discovery</td><td><code>WEB_SEARCH_PROVIDER</code> (none / tavily), <code>TAVILY_API_KEY</code>, <code>ACADEMIC_SEARCH</code> (arxiv), <code>SEMANTIC_SCHOLAR_API_KEY</code>, <code>BLOCKED_DOMAINS</code>, <code>ALLOWED_DOMAINS</code>, <code>FETCH_MAX_MB</code> (10), <code>FETCH_TIMEOUT_MS</code> (20000), <code>MAX_SOURCES_PER_RUN</code> (5)</td></tr>
+<tr><td>LLM</td><td><code>LLM_PROVIDER</code> (openai / fake), <code>OPENAI_API_KEY</code>, <code>OPENAI_MODEL</code> (gpt-5-mini), <code>OPENAI_EMBEDDING_MODEL</code> (text-embedding-3-small)</td></tr></tbody></table></div>
+<p>The app refuses to start with an invalid configuration. With <code>NODE_ENV=production</code> it also
+refuses the fake provider, a missing API key for an enabled provider and the example JWT secret.</p>
+<hr>
+<h2 id="14-running-it"><a class="anchor" href="#14-running-it">#</a>14. Running it</h2>
+<div class="table"><table><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody><tr><td><code>npm run db:up</code></td><td>start Postgres + pgvector in Docker (port 5433)</td></tr>
+<tr><td><code>npm run db:migrate</code></td><td>apply migrations</td></tr>
+<tr><td><code>npm run db:setup</code></td><td>release step: migrations, job queue, trace partitions, grants</td></tr>
+<tr><td><code>npm run dev</code></td><td>API with reload</td></tr>
+<tr><td><code>npm run worker</code></td><td>worker with reload</td></tr>
+<tr><td><code>npm test</code></td><td>Vitest (integration tests use the <code>verity_test</code> database)</td></tr>
+<tr><td><code>npm run lint</code> · <code>npm run typecheck</code> · <code>npm run build</code></td><td>checks and build</td></tr>
+<tr><td><code>npm run eval -- --dataset ai-agents [--category red_team] [--limit N]</code></td><td>offline eval from the terminal</td></tr>
+<tr><td><code>npm run docs:build</code></td><td>regenerate <code>docs/architecture.html</code> from this file</td></tr></tbody></table></div>
+<p><strong>Docker:</strong> one image (<code>Dockerfile</code>) runs <code>PROCESS=api | worker | all | setup | setup-and-all</code>
+(<code>deploy/entrypoint.sh</code>); <code>deploy/docker-compose.full.yml</code> starts Postgres, setup, API, worker
+and the frontend. <strong>CI:</strong> <code>.github/workflows/ci.yml</code> runs lint, format, typecheck, tests, build,
+<code>db:setup</code> and a red-team eval smoke test with the fake provider.</p>
+<hr>
+<h2 id="15-where-to-change-things"><a class="anchor" href="#15-where-to-change-things">#</a>15. Where to change things</h2>
+<div class="table"><table><thead><tr><th>I want to…</th><th>Touch</th></tr></thead><tbody><tr><td>add an API endpoint</td><td>the module&#39;s <code>*.routes.ts</code> (path + <code>requirePermission</code> + <code>validate</code>), controller, service, repository; a test next to it</td></tr>
+<tr><td>add a table or column</td><td><code>src/infrastructure/database/schema/*.ts</code>, then <code>npm run db:generate</code>; add the table to <code>resetDatabase</code> in <code>src/tests/helpers.ts</code></td></tr>
+<tr><td>add a pipeline stage</td><td><code>modules/agent/stages/&lt;stage&gt;.ts</code>, register it in <code>agent-runtime.ts</code> <code>stageFns</code> and <code>pipeline.ts</code>, add the stage to the <code>run_stage</code> enum</td></tr>
+<tr><td>add an agent tool</td><td>the tool in <code>modules/tools</code>, its rules in <code>policies/policy-rules.ts</code>, call it through <code>ctx.tools.call</code></td></tr>
+<tr><td>change a prompt</td><td><code>modules/agent/prompts/*.ts</code> or <code>modules/evaluation/prompts/*.ts</code>; bump the version constant and compare with an eval run</td></tr>
+<tr><td>add a background job</td><td>queue name and options in <code>infrastructure/queue/queue.ts</code>, consumer in <code>worker.ts</code></td></tr>
+<tr><td>change limits</td><td>budgets in the org policy or <code>agent/budget.ts</code>; rate limits in <code>middleware/rate-limit.ts</code></td></tr></tbody></table></div>
+
+  </main>
+</div>
+<script type="module">
+  try {
+    const { default: mermaid } = await import("https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs");
+    const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "default", securityLevel: "strict" });
+    await mermaid.run({ querySelector: "pre.mermaid" });
+  } catch (err) {
+    console.warn("Diagrams not rendered (offline?):", err);
+  }
+  // On phones, close the contents after picking a section.
+  document.querySelectorAll("#toc a").forEach((a) =>
+    a.addEventListener("click", () => document.getElementById("toc").classList.remove("open")),
+  );
+</script>
+</body>
+</html>

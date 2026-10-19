@@ -25,7 +25,8 @@
     "start:db-setup": "node dist/scripts/db-setup.js",
     "worker": "tsx watch src/worker.ts",
     "start:worker": "node dist/worker.js",
-    "eval": "tsx src/scripts/eval.ts"
+    "eval": "tsx src/scripts/eval.ts",
+    "docs:build": "tsx src/scripts/build-docs.ts"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
